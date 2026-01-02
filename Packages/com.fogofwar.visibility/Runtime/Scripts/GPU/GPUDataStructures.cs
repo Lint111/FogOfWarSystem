@@ -82,20 +82,48 @@ namespace FogOfWar.Visibility.GPU
     }
 
     /// <summary>
-    /// Environment island definition.
-    /// Size: 64 bytes
+    /// Environment island definition with rotation support.
+    /// Islands can be rotated arbitrarily - SDF is baked in local space,
+    /// transform converts world→local for sampling.
+    /// Size: 96 bytes (aligned)
     /// </summary>
     [StructLayout(LayoutKind.Sequential)]
     public struct EnvironmentIslandGPU
     {
-        public float3 boundsMin;            // AABB minimum
+        public float3 worldCenter;          // Island pivot in world space
         public float padding1;
-        public float3 boundsMax;            // AABB maximum
+        public float3 localHalfExtents;     // Local-space AABB half-size (from center)
         public float padding2;
-        public float3 sdfOffset;            // World offset for SDF sampling
-        public float padding3;
-        public float3 sdfScale;             // Scale factor (bounds size / texture size)
+        public float4 rotation;             // Quaternion (world from local)
+        public float4 rotationInverse;      // Inverse quaternion (local from world)
+        public float3 sdfScale;             // localHalfExtents * 2 / textureResolution
         public int textureIndex;            // Index into island SDF texture array
+        public int isValid;                 // Non-zero if island is loaded
+        public float3 padding3;             // Pad to 96 bytes
+
+        /// <summary>
+        /// Creates an island GPU struct from transform data.
+        /// </summary>
+        public static EnvironmentIslandGPU Create(
+            float3 worldCenter,
+            float3 localHalfExtents,
+            quaternion rotation,
+            float3 textureResolution,
+            int textureIndex)
+        {
+            var rotInverse = math.inverse(rotation);
+            return new EnvironmentIslandGPU
+            {
+                worldCenter = worldCenter,
+                localHalfExtents = localHalfExtents,
+                rotation = rotation.value,
+                rotationInverse = rotInverse.value,
+                sdfScale = 1.0f / (localHalfExtents * 2.0f) * textureResolution,
+                textureIndex = textureIndex,
+                isValid = 1,
+                padding1 = 0, padding2 = 0, padding3 = float3.zero
+            };
+        }
     }
 
     /// <summary>

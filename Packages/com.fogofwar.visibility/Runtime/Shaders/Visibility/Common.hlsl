@@ -78,16 +78,20 @@ struct SeeableEntityData
     float4 padding2;
 };
 
+// Environment island with rotation support (96 bytes)
+// Islands can be rotated - SDF is baked in local space
 struct EnvironmentIsland
 {
-    float3 boundsMin;
+    float3 worldCenter;         // Island pivot in world space
     float padding1;
-    float3 boundsMax;
+    float3 localHalfExtents;    // Local-space AABB half-size
     float padding2;
-    float3 sdfOffset;
-    float padding3;
-    float3 sdfScale;
+    float4 rotation;            // Quaternion (world from local)
+    float4 rotationInverse;     // Inverse quaternion (local from world)
+    float3 sdfScale;            // 1 / (localHalfExtents * 2) * textureResolution
     int textureIndex;
+    int isValid;                // Non-zero if island is loaded
+    float3 padding3;
 };
 
 // [C1 FIX] Added seeableIndex to avoid O(n) search
@@ -134,10 +138,40 @@ bool IsInsideAABB(float3 p, float3 minB, float3 maxB)
     return all(p >= minB) && all(p <= maxB);
 }
 
+// Check if point is inside local-space oriented box (centered at origin)
+bool IsInsideLocalBox(float3 localP, float3 halfExtents)
+{
+    return all(abs(localP) <= halfExtents);
+}
+
 // Unpack byte from uint (for struct fields)
 uint UnpackByte(uint packed, uint byteIndex)
 {
     return (packed >> (byteIndex * 8)) & 0xFF;
+}
+
+// =============================================================================
+// QUATERNION UTILITIES
+// =============================================================================
+
+// Rotate vector by quaternion: q * v * q^-1
+// q.xyz = vector part, q.w = scalar part
+float3 QuatRotate(float4 q, float3 v)
+{
+    float3 t = 2.0 * cross(q.xyz, v);
+    return v + q.w * t + cross(q.xyz, t);
+}
+
+// Transform world position to island local space
+float3 WorldToIslandLocal(float3 worldPos, EnvironmentIsland island)
+{
+    return QuatRotate(island.rotationInverse, worldPos - island.worldCenter);
+}
+
+// Transform island local position to world space
+float3 IslandLocalToWorld(float3 localPos, EnvironmentIsland island)
+{
+    return QuatRotate(island.rotation, localPos) + island.worldCenter;
 }
 
 #endif // VISIBILITY_COMMON_HLSL

@@ -29,31 +29,12 @@ uint _IslandCount;
 uint _IslandValidityMask;
 
 // =============================================================================
-// ISLAND SDF SAMPLING
+// ISLAND SDF TEXTURE SAMPLING (internal)
 // =============================================================================
 
-// Sample a specific island's SDF at world position
-// [C4 FIX] Returns large positive if island texture is invalid
-float SampleIslandSDF(int islandIndex, float3 worldPos)
+// Sample island texture by index (manual dispatch - HLSL limitation)
+float SampleIslandTexture(int islandIndex, float3 uvw)
 {
-    // [C4 FIX] Check validity first
-    if ((_IslandValidityMask & (1u << islandIndex)) == 0)
-        return 1.0; // Invalid island = no occlusion
-
-    EnvironmentIsland island = _Islands[islandIndex];
-
-    // Check if inside AABB
-    if (!IsInsideAABB(worldPos, island.boundsMin, island.boundsMax))
-        return 1.0; // Outside = no occlusion
-
-    // Convert world pos to UVW
-    float3 uvw = (worldPos - island.sdfOffset) * island.sdfScale;
-
-    // Clamp UVW to valid range
-    uvw = saturate(uvw);
-
-    // Sample appropriate texture
-    // (Manual dispatch because HLSL doesn't support texture arrays well)
     switch (islandIndex)
     {
         case 0: return _IslandSDF0.SampleLevel(sampler_IslandSDF, uvw, 0);
@@ -68,7 +49,44 @@ float SampleIslandSDF(int islandIndex, float3 worldPos)
     }
 }
 
+// =============================================================================
+// ISLAND SDF SAMPLING (with rotation support)
+// =============================================================================
+
+// Sample a specific island's SDF at world position
+// Transforms world→local, checks local bounds, samples local-space SDF
+// Returns large positive if outside or invalid
+float SampleIslandSDF(int islandIndex, float3 worldPos)
+{
+    // [C4 FIX] Check validity first
+    if ((_IslandValidityMask & (1u << islandIndex)) == 0)
+        return 1.0; // Invalid island = no occlusion
+
+    EnvironmentIsland island = _Islands[islandIndex];
+
+    // Additional validity check from struct
+    if (island.isValid == 0)
+        return 1.0;
+
+    // Transform world position to island local space
+    float3 localPos = WorldToIslandLocal(worldPos, island);
+
+    // Check if inside local-space bounding box (centered at origin)
+    if (!IsInsideLocalBox(localPos, island.localHalfExtents))
+        return 1.0; // Outside = no occlusion
+
+    // Convert local position to UVW (local box maps to [0,1]³)
+    // localPos in [-halfExtents, +halfExtents] → uvw in [0, 1]
+    float3 uvw = (localPos / island.localHalfExtents) * 0.5 + 0.5;
+
+    // Clamp UVW to valid range (safety)
+    uvw = saturate(uvw);
+
+    return SampleIslandTexture(islandIndex, uvw);
+}
+
 // Find which island contains a point (or -1 if none)
+// Uses rotated OBB test
 int FindContainingIsland(float3 worldPos)
 {
     for (uint i = 0; i < _IslandCount; i++)
@@ -78,7 +96,12 @@ int FindContainingIsland(float3 worldPos)
             continue;
 
         EnvironmentIsland island = _Islands[i];
-        if (IsInsideAABB(worldPos, island.boundsMin, island.boundsMax))
+        if (island.isValid == 0)
+            continue;
+
+        // Transform to local space and check bounds
+        float3 localPos = WorldToIslandLocal(worldPos, island);
+        if (IsInsideLocalBox(localPos, island.localHalfExtents))
             return (int)i;
     }
     return -1;
@@ -148,7 +171,36 @@ bool RayMarchThroughIslands(
     return true; // Reached target
 }
 
+// Ray-OBB intersection test (oriented bounding box)
+// Transforms ray to island local space, tests against axis-aligned box
+bool RayIntersectsIsland(float3 rayOrigin, float3 rayDir, float rayLength, EnvironmentIsland island,
+                         out float tEnter, out float tExit)
+{
+    tEnter = 0.0;
+    tExit = rayLength;
+
+    // Transform ray to island local space
+    float3 localOrigin = WorldToIslandLocal(rayOrigin, island);
+    float3 localDir = QuatRotate(island.rotationInverse, rayDir);
+
+    // Avoid division by zero
+    float3 invDir = 1.0 / (abs(localDir) > 0.0001 ? localDir : sign(localDir) * 0.0001);
+
+    // Ray-AABB intersection in local space (box centered at origin)
+    float3 t1 = (-island.localHalfExtents - localOrigin) * invDir;
+    float3 t2 = ( island.localHalfExtents - localOrigin) * invDir;
+
+    float3 tMinV = min(t1, t2);
+    float3 tMaxV = max(t1, t2);
+
+    tEnter = max(max(tMinV.x, tMinV.y), tMinV.z);
+    tExit = min(min(tMaxV.x, tMaxV.y), tMaxV.z);
+
+    return tEnter <= tExit && tExit >= 0.0 && tEnter <= rayLength;
+}
+
 // Compute which islands a ray might pass through
+// Uses oriented box intersection for rotated islands
 uint ComputeRayIslandMask(float3 origin, float3 target)
 {
     uint mask = 0;
@@ -167,20 +219,11 @@ uint ComputeRayIslandMask(float3 origin, float3 target)
             continue;
 
         EnvironmentIsland island = _Islands[i];
+        if (island.isValid == 0)
+            continue;
 
-        // Ray-AABB intersection test
-        float3 invDir = 1.0 / dir;
-        float3 t1 = (island.boundsMin - origin) * invDir;
-        float3 t2 = (island.boundsMax - origin) * invDir;
-
-        float3 tMin = min(t1, t2);
-        float3 tMax = max(t1, t2);
-
-        float tEnter = max(max(tMin.x, tMin.y), tMin.z);
-        float tExit = min(min(tMax.x, tMax.y), tMax.z);
-
-        // Ray intersects AABB
-        if (tEnter <= tExit && tExit >= 0.0 && tEnter <= rayLength)
+        float tEnter, tExit;
+        if (RayIntersectsIsland(origin, dir, rayLength, island, tEnter, tExit))
         {
             mask |= (1u << i);
         }

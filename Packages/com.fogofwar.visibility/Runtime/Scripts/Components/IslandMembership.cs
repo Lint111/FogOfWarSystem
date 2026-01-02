@@ -1,4 +1,6 @@
+using System;
 using Unity.Entities;
+using FogOfWar.Visibility.GPU;
 
 namespace FogOfWar.Visibility.Components
 {
@@ -17,24 +19,52 @@ namespace FogOfWar.Visibility.Components
         /// <summary>
         /// Creates membership for a single island.
         /// </summary>
+        /// <param name="islandIndex">Island index (0 to MAX_ISLANDS-1).</param>
+        /// <exception cref="ArgumentOutOfRangeException">If islandIndex is out of valid range.</exception>
         public static IslandMembership ForIsland(int islandIndex)
         {
+            ValidateIslandIndex(islandIndex);
             return new IslandMembership { IslandMask = (ushort)(1 << islandIndex) };
         }
 
         /// <summary>
         /// Checks if entity is in specified island.
         /// </summary>
-        public bool IsInIsland(int islandIndex) => (IslandMask & (1 << islandIndex)) != 0;
+        /// <param name="islandIndex">Island index (0 to MAX_ISLANDS-1).</param>
+        /// <exception cref="ArgumentOutOfRangeException">If islandIndex is out of valid range.</exception>
+        public bool IsInIsland(int islandIndex)
+        {
+            ValidateIslandIndex(islandIndex);
+            return (IslandMask & (1 << islandIndex)) != 0;
+        }
 
         /// <summary>
         /// Adds entity to an island.
         /// </summary>
-        public void AddToIsland(int islandIndex) => IslandMask |= (ushort)(1 << islandIndex);
+        /// <param name="islandIndex">Island index (0 to MAX_ISLANDS-1).</param>
+        /// <exception cref="ArgumentOutOfRangeException">If islandIndex is out of valid range.</exception>
+        public void AddToIsland(int islandIndex)
+        {
+            ValidateIslandIndex(islandIndex);
+            IslandMask |= (ushort)(1 << islandIndex);
+        }
 
         /// <summary>
         /// Removes entity from an island.
         /// </summary>
-        public void RemoveFromIsland(int islandIndex) => IslandMask &= (ushort)~(1 << islandIndex);
+        /// <param name="islandIndex">Island index (0 to MAX_ISLANDS-1).</param>
+        /// <exception cref="ArgumentOutOfRangeException">If islandIndex is out of valid range.</exception>
+        public void RemoveFromIsland(int islandIndex)
+        {
+            ValidateIslandIndex(islandIndex);
+            IslandMask &= (ushort)~(1 << islandIndex);
+        }
+
+        private static void ValidateIslandIndex(int islandIndex)
+        {
+            if (islandIndex < 0 || islandIndex >= GPUConstants.MAX_ISLANDS)
+                throw new ArgumentOutOfRangeException(nameof(islandIndex),
+                    $"Island index must be between 0 and {GPUConstants.MAX_ISLANDS - 1}, got {islandIndex}");
+        }
     }
 }

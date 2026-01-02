@@ -85,8 +85,10 @@ namespace FogOfWar.Visibility.Systems
 
             if (_visibilityCheckShader == null || _rayMarchShader == null)
             {
-                // Shaders not in Resources - try direct path
-                // In production, these would be assigned via ScriptableObject or addressables
+                Debug.LogWarning("[VisibilityComputeDispatchSystem] Failed to load compute shaders from Resources. " +
+                    $"VisibilityCheck: {(_visibilityCheckShader != null ? "OK" : "MISSING")}, " +
+                    $"RayMarchConfirm: {(_rayMarchShader != null ? "OK" : "MISSING")}. " +
+                    "Ensure shaders are in Resources/Shaders/ or configure via ScriptableObject.");
                 return false;
             }
 

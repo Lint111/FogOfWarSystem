@@ -221,36 +221,75 @@ namespace FogOfWar.Visibility.Systems
 
     /// <summary>
     /// Managed component holding references to GPU compute buffers.
-    /// Set by the compute dispatch system.
+    /// Set by the compute dispatch system, populated by data collection system.
     /// </summary>
     public class VisibilityGPUBuffersRef : IComponentData
     {
-        /// <summary>
-        /// GPU buffer: per-group visible entity counts.
-        /// Size: MAX_GROUPS ints.
-        /// </summary>
+        // ===== Input Buffers (set by DataCollectionSystem) =====
+
+        /// <summary>GPU buffer: per-group metadata. Size: MAX_GROUPS.</summary>
+        public ComputeBuffer GroupData;
+
+        /// <summary>GPU buffer: unit vision contributions. Variable size.</summary>
+        public ComputeBuffer UnitContributions;
+
+        /// <summary>GPU buffer: seeable entity data. Variable size.</summary>
+        public ComputeBuffer SeeableEntities;
+
+        /// <summary>GPU buffer: environment islands. Size: MAX_ISLANDS.</summary>
+        public ComputeBuffer Islands;
+
+        /// <summary>GPU buffer: per-group island masks. Size: MAX_GROUPS.</summary>
+        public ComputeBuffer GroupIslandMasks;
+
+        // ===== Output Buffers (read by ReadbackSystem) =====
+
+        /// <summary>GPU buffer: per-group visible entity counts. Size: MAX_GROUPS.</summary>
         public ComputeBuffer VisibleCounts;
 
-        /// <summary>
-        /// GPU buffer: flat array of visibility entries.
-        /// Size: MAX_GROUPS * MaxVisiblePerGroup entries.
-        /// </summary>
+        /// <summary>GPU buffer: flat array of visibility entries.</summary>
         public ComputeBuffer VisibleEntities;
 
-        /// <summary>
-        /// GPU buffer: per-group start offsets into VisibleEntities.
-        /// Size: MAX_GROUPS ints.
-        /// </summary>
+        /// <summary>GPU buffer: per-group start offsets into VisibleEntities.</summary>
         public ComputeBuffer VisibleOffsets;
 
-        /// <summary>
-        /// The 3D fog volume texture for player rendering.
-        /// </summary>
+        // ===== Intermediate Buffers =====
+
+        /// <summary>GPU buffer: visibility candidates for ray march.</summary>
+        public ComputeBuffer Candidates;
+
+        /// <summary>GPU buffer: candidate count (single int).</summary>
+        public ComputeBuffer CandidateCount;
+
+        /// <summary>GPU buffer: indirect dispatch arguments.</summary>
+        public ComputeBuffer IndirectArgs;
+
+        // ===== Textures =====
+
+        /// <summary>The 3D fog volume texture for player rendering.</summary>
         public RenderTexture FogVolume;
 
-        /// <summary>
-        /// World bounds of the fog volume.
-        /// </summary>
+        /// <summary>World bounds of the fog volume.</summary>
         public Bounds VolumeBounds;
+
+        // ===== Counts (for shader uniforms) =====
+
+        /// <summary>Number of seeable entities this frame.</summary>
+        public int SeeableCount;
+
+        /// <summary>Number of active groups.</summary>
+        public int GroupCount;
+
+        /// <summary>Number of loaded islands.</summary>
+        public int IslandCount;
+
+        /// <summary>Player group ID for fog volume.</summary>
+        public int PlayerGroupId;
+
+        /// <summary>Max candidates buffer can hold.</summary>
+        public int MaxCandidates;
+
+        /// <summary>Max visible per group.</summary>
+        public int MaxVisiblePerGroup;
     }
 }

@@ -103,6 +103,7 @@ namespace FogOfWar.Visibility.GPU
     /// <summary>
     /// Final visibility output entry.
     /// Size: 16 bytes
+    /// Layout matches HLSL: uint packed = visibilityLevel (8) | flags (8) | padding (16)
     /// </summary>
     [StructLayout(LayoutKind.Sequential)]
     public struct VisibilityEntryGPU
@@ -110,8 +111,26 @@ namespace FogOfWar.Visibility.GPU
         public int entityId;                // Who is visible
         public int seenByUnitIndex;         // Which of our units sees this
         public float distance;              // Distance from that unit
-        public byte visibilityLevel;        // 0=edge, 1=partial, 2=full
-        public byte flags;
-        public ushort padding;
+        private uint packed;                // visibilityLevel (8) | flags (8) | padding (16)
+
+        /// <summary>Visibility level: 0=edge, 1=partial, 2=full.</summary>
+        public byte visibilityLevel
+        {
+            get => (byte)(packed & 0xFF);
+            set => packed = (packed & 0xFFFFFF00) | value;
+        }
+
+        /// <summary>Additional flags.</summary>
+        public byte flags
+        {
+            get => (byte)((packed >> 8) & 0xFF);
+            set => packed = (packed & 0xFFFF00FF) | ((uint)value << 8);
+        }
+
+        /// <summary>Sets the packed field directly (for GPU readback).</summary>
+        public void SetPacked(uint value) => packed = value;
+
+        /// <summary>Gets the raw packed field.</summary>
+        public uint GetPacked() => packed;
     }
 }

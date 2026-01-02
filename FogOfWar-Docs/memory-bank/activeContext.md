@@ -2,22 +2,24 @@
 tags: [memory-bank, active-context]
 hacknplan-project: 231460
 last-updated: 2026-01-02
-last-commit: d5f5a67
+last-commit: pending
 ---
 
 # Active Context
 
 ## Current Focus
 
-**Sprint 1 Phase 1 Complete - Critical Fixes Implemented**
+**Sprint 1 Phase 2 - All Critical Fixes Complete**
 
-Session 2026-01-02 completed:
-- UPM package structure created
-- C1: FindSeeableById O(1) lookup via seeableIndex
-- C2: Atomic write bounds checking with rollback
-- C4: Island texture validity mask
+Session 2026-01-02 (continued):
+- C3: Double-buffered blob readback COMPLETE
+  - Created `VisibilityReadbackSystem.cs` with async GPU readback
+  - Created `VisibilityQueryData.cs` with blob-based singleton components
+  - Added `VisibilityReadbackBuffers` managed class for double-buffering
+  - Enhanced `VisibilityQuery.cs` with high-performance blob query methods
+  - Added 11 new unit tests for readback and query functionality
 
-**Next Priority:** C3 - Double-buffered blob readback
+**Next Priority:** M1 - Shared memory unit loading (or PlayerFogVolume.compute)
 
 ## Package Structure
 
@@ -43,8 +45,8 @@ Packages/com.fogofwar.visibility/
 | 7 | [C1] Fix FindSeeableById linear search | Urgent | Complete |
 | 8 | [C2] Add atomic write bounds checking | Urgent | Complete |
 | 9 | [C4] Add island texture validity checks | Urgent | Complete |
-| 11 | [C3] Implement double-buffered blob readback | Urgent | NEXT |
-| 10 | [M1] Implement shared memory unit loading | High | Planned |
+| 11 | [C3] Implement double-buffered blob readback | Urgent | Complete |
+| 10 | [M1] Implement shared memory unit loading | High | NEXT |
 | 12 | [M3] Optimize thread group size to 4x4x4 | High | Planned |
 | 13 | [M2] Centralize constants with validation | High | Planned |
 
@@ -58,9 +60,9 @@ Packages/com.fogofwar.visibility/
 
 ## Next Steps
 
-1. [C3] Double-buffered blob readback - Create VisibilityReadbackSystem.cs
+1. [M1] Shared memory unit loading - Optimize compute shader unit buffer access
 2. PlayerFogVolume.compute - Stage 1 of GPU pipeline
-3. ECS Systems - Data collection, compute dispatch, readback processing
+3. ECS Systems - Data collection, compute dispatch (VisibilityReadbackSystem done)
 
 ## Continuation Checklist
 

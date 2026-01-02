@@ -5,14 +5,28 @@ namespace FogOfWar.Visibility.GPU
 {
     /// <summary>
     /// GPU data structure constants.
+    /// IMPORTANT: These values MUST match the #defines in Common.hlsl.
+    /// Run "GPU Constants Validation" test to verify synchronization.
     /// </summary>
     public static class GPUConstants
     {
+        // Core limits (must match Common.hlsl)
         public const int MAX_GROUPS = 8;
         public const int MAX_ISLANDS = 16;
         public const int MAX_RAY_STEPS = 48;
         public const float VISIBILITY_THRESHOLD = 0.1f;
         public const float OCCLUSION_THRESHOLD = 0.05f;
+
+        // Thread group sizes (must match Common.hlsl)
+        public const int THREAD_GROUP_1D = 64;
+        public const int THREAD_GROUP_3D_X = 4;
+        public const int THREAD_GROUP_3D_Y = 4;
+        public const int THREAD_GROUP_3D_Z = 4;
+
+        // Vision types (must match Common.hlsl)
+        public const int VISION_SPHERE = 0;
+        public const int VISION_SPHERE_CONE = 1;
+        public const int VISION_DUAL_SPHERE = 2;
     }
 
     /// <summary>

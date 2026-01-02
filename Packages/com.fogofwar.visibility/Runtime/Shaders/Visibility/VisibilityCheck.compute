@@ -1,0 +1,147 @@
+// VisibilityCheck.compute
+// Stage 2: Check all seeables against all groups
+
+#pragma kernel ComputeAllGroupsVisibility
+
+#include "Common.hlsl"
+#include "SDFEvaluation.hlsl"
+
+// =============================================================================
+// BINDINGS
+// =============================================================================
+
+StructuredBuffer<VisionGroupData> _GroupData;
+StructuredBuffer<UnitSDFContribution> _UnitContributions;
+StructuredBuffer<SeeableEntityData> _SeeableEntities;
+StructuredBuffer<uint> _GroupIslandMasks;
+
+// Player fog volume (for efficient player group lookup)
+Texture3D<float> _PlayerFogVolume;
+SamplerState sampler_PlayerFogVolume;
+
+RWStructuredBuffer<VisibilityCandidate> _Candidates;
+RWStructuredBuffer<int> _CandidateCount;
+
+uint _GroupCount;
+uint _SeeableCount;
+uint _PlayerGroupId;
+uint _MaxCandidates;            // [C2 FIX] Max buffer size for bounds checking
+float3 _VolumeWorldMin;
+float3 _VolumeWorldMax;
+
+// =============================================================================
+// HELPER FUNCTIONS
+// =============================================================================
+
+float3 WorldToVolumeUVW(float3 worldPos)
+{
+    return saturate((worldPos - _VolumeWorldMin) / (_VolumeWorldMax - _VolumeWorldMin));
+}
+
+// =============================================================================
+// MAIN KERNEL
+// =============================================================================
+
+[numthreads(64, 1, 1)]
+void ComputeAllGroupsVisibility(uint3 id : SV_DispatchThreadID)
+{
+    if (id.x >= _SeeableCount)
+        return;
+
+    // [C1 FIX] id.x IS the seeable index - we'll pass this directly
+    uint seeableIndex = id.x;
+    SeeableEntityData seeable = _SeeableEntities[seeableIndex];
+
+    float3 targetPos = seeable.position;
+    float targetRadius = seeable.boundingRadius;
+    uint ownerGroupId = seeable.ownerGroupId & 0xFF;
+    uint seeableByMask = seeable.seeableByMask & 0xFF;
+
+    // Check against each group
+    for (uint g = 0; g < _GroupCount; g++)
+    {
+        // Skip self-visibility
+        if (g == ownerGroupId)
+            continue;
+
+        // Check permission mask
+        if ((seeableByMask & (1u << g)) == 0)
+            continue;
+
+        VisionGroupData viewer = _GroupData[g];
+        uint viewerVisibilityMask = viewer.visibilityMask & 0xFF;
+
+        // Check if viewer can see target's group
+        if ((viewerVisibilityMask & (1u << ownerGroupId)) == 0)
+            continue;
+
+        // Quick bounds rejection
+        float distToGroup = length(targetPos - viewer.groupCenter);
+        if (distToGroup > viewer.maxViewDistance + viewer.groupBoundingRadius + targetRadius)
+            continue;
+
+        float visibility = 0.0;
+        int nearestUnit = -1;
+        float nearestDist = 1e10;
+
+        // Different evaluation path for player vs AI groups
+        if (g == _PlayerGroupId)
+        {
+            // Player: sample precomputed fog volume
+            float3 uvw = WorldToVolumeUVW(targetPos);
+            visibility = _PlayerFogVolume.SampleLevel(sampler_PlayerFogVolume, uvw, 0);
+
+            // Still find nearest unit for output
+            if (visibility > VISIBILITY_THRESHOLD)
+            {
+                for (int i = 0; i < viewer.unitCount; i++)
+                {
+                    int idx = viewer.unitStartIndex + i;
+                    float d = length(targetPos - _UnitContributions[idx].position);
+                    if (d < nearestDist)
+                    {
+                        nearestDist = d;
+                        nearestUnit = idx;
+                    }
+                }
+            }
+        }
+        else
+        {
+            // AI groups: direct SDF evaluation
+            float sdf = EvaluateGroupVision(
+                targetPos,
+                viewer,
+                _UnitContributions,
+                nearestUnit,
+                nearestDist);
+
+            visibility = SDFToVisibility(sdf, targetRadius);
+        }
+
+        // Passed visibility threshold - add to candidates
+        if (visibility > VISIBILITY_THRESHOLD && nearestUnit >= 0)
+        {
+            int idx;
+            InterlockedAdd(_CandidateCount[0], 1, idx);
+
+            // [C2 FIX] Bounds check before writing
+            if ((uint)idx >= _MaxCandidates)
+            {
+                // Overflow - decrement counter and skip
+                InterlockedAdd(_CandidateCount[0], -1);
+                return;
+            }
+
+            VisibilityCandidate candidate;
+            candidate.entityId = seeable.entityId;
+            candidate.seeableIndex = (int)seeableIndex;  // [C1 FIX] Pass index directly
+            candidate.viewerGroupId = (int)g;
+            candidate.nearestUnitIndex = nearestUnit;
+            candidate.distance = nearestDist;
+            candidate.padding = float3(0, 0, 0);
+
+            _Candidates[idx] = candidate;
+        }
+    }
+}

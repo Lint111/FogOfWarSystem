@@ -1,0 +1,107 @@
+// RayMarchConfirm.compute
+// Stage 3: Ray march to confirm visibility (occlusion check)
+
+#pragma kernel RayMarchConfirmation
+
+#include "Common.hlsl"
+#include "IslandSampling.hlsl"
+
+// =============================================================================
+// BINDINGS
+// =============================================================================
+
+StructuredBuffer<VisionGroupData> _GroupData;
+StructuredBuffer<UnitSDFContribution> _UnitContributions;
+StructuredBuffer<SeeableEntityData> _SeeableEntities;
+StructuredBuffer<VisibilityCandidate> _Candidates;
+StructuredBuffer<int> _CandidateCount;
+StructuredBuffer<uint> _GroupIslandMasks;
+
+RWStructuredBuffer<VisibilityEntry> _VisibleEntities;
+RWStructuredBuffer<int> _VisibleCounts;         // Per group counter
+StructuredBuffer<int> _VisibleOffsets;          // Per group start offset
+
+uint _SeeableCount;
+uint _MaxVisiblePerGroup;
+
+// =============================================================================
+// HELPER FUNCTIONS
+// =============================================================================
+
+// [C1 FIX] REMOVED FindSeeableById - now using direct index from candidate
+
+uint ComputeVisibilityLevel(float distance)
+{
+    // 0 = edge (far), 1 = partial (medium), 2 = full (close)
+    if (distance < 5.0) return 2;
+    if (distance < 15.0) return 1;
+    return 0;
+}
+
+// =============================================================================
+// MAIN KERNEL
+// =============================================================================
+
+[numthreads(64, 1, 1)]
+void RayMarchConfirmation(uint3 id : SV_DispatchThreadID)
+{
+    int candidateCount = _CandidateCount[0];
+    if (id.x >= (uint)candidateCount)
+        return;
+
+    VisibilityCandidate candidate = _Candidates[id.x];
+
+    // Get viewer unit position
+    UnitSDFContribution viewerUnit = _UnitContributions[candidate.nearestUnitIndex];
+    float3 viewerPos = viewerUnit.position;
+
+    // [C1 FIX] Use seeableIndex directly instead of linear search
+    // OLD: SeeableEntityData target = FindSeeableById(candidate.entityId);
+    SeeableEntityData target = _SeeableEntities[candidate.seeableIndex];
+
+    // Validate the index points to correct entity (defensive check)
+    if (target.entityId != candidate.entityId)
+        return;
+
+    float3 targetPos = target.position;
+
+    // Compute which islands the ray passes through
+    uint rayIslandMask = ComputeRayIslandMask(viewerPos, targetPos);
+
+    // Also include group's known relevant islands
+    rayIslandMask |= _GroupIslandMasks[candidate.viewerGroupId];
+
+    // Ray march to confirm visibility
+    bool isVisible = RayMarchThroughIslands(
+        viewerPos,
+        targetPos,
+        rayIslandMask,
+        target.boundingRadius);
+
+    if (isVisible)
+    {
+        uint groupId = (uint)candidate.viewerGroupId;
+        int offset = _VisibleOffsets[groupId];
+
+        int localIdx;
+        InterlockedAdd(_VisibleCounts[groupId], 1, localIdx);
+
+        // [C2 FIX] Bounds check before writing
+        if ((uint)localIdx >= _MaxVisiblePerGroup)
+        {
+            // Overflow - decrement and skip
+            InterlockedAdd(_VisibleCounts[groupId], -1);
+            return;
+        }
+
+        int globalIdx = offset + localIdx;
+
+        VisibilityEntry entry;
+        entry.entityId = candidate.entityId;
+        entry.seenByUnitIndex = candidate.nearestUnitIndex;
+        entry.distance = candidate.distance;
+        entry.packed = ComputeVisibilityLevel(candidate.distance); // visibilityLevel in low byte
+
+        _VisibleEntities[globalIdx] = entry;
+    }
+}

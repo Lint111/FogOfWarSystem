@@ -1,0 +1,22 @@
+{
+    "name": "FogOfWar.Visibility.Editor",
+    "rootNamespace": "FogOfWar.Visibility.Editor",
+    "references": [
+        "FogOfWar.Visibility",
+        "Unity.Entities",
+        "Unity.Entities.Editor",
+        "Unity.Mathematics",
+        "Unity.Collections"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": true,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

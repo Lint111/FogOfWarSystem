@@ -52,6 +52,61 @@ namespace FogOfWar.Visibility.Tests
             Assert.AreEqual(1, (byte)VisionType.SphereWithCone);
             Assert.AreEqual(2, (byte)VisionType.DualSphere);
         }
+
+        [Test]
+        public void IslandMembership_ForIsland_SetsSingleBit()
+        {
+            var membership = IslandMembership.ForIsland(3);
+            Assert.AreEqual(0b00001000, membership.IslandMask);
+            Assert.IsTrue(membership.IsInIsland(3));
+            Assert.IsFalse(membership.IsInIsland(2));
+        }
+
+        [Test]
+        public void IslandMembership_AddRemove_ModifiesMaskCorrectly()
+        {
+            var membership = IslandMembership.ForIsland(0);
+            membership.AddToIsland(5);
+
+            Assert.IsTrue(membership.IsInIsland(0));
+            Assert.IsTrue(membership.IsInIsland(5));
+            Assert.AreEqual(0b00100001, membership.IslandMask);
+
+            membership.RemoveFromIsland(0);
+            Assert.IsFalse(membership.IsInIsland(0));
+            Assert.IsTrue(membership.IsInIsland(5));
+        }
+
+        [Test]
+        public void IslandMembership_InvalidIndex_ThrowsException()
+        {
+            Assert.Throws<System.ArgumentOutOfRangeException>(() => IslandMembership.ForIsland(-1));
+            Assert.Throws<System.ArgumentOutOfRangeException>(() => IslandMembership.ForIsland(16));
+        }
+
+        [Test]
+        public void VisionGroupActive_EnableDisable_WorksCorrectly()
+        {
+            var active = VisionGroupActive.AllActive;
+            Assert.AreEqual(8, active.ActiveCount);
+            Assert.IsTrue(active.IsGroupActive(0));
+
+            active.DisableGroup(3);
+            Assert.IsFalse(active.IsGroupActive(3));
+            Assert.AreEqual(7, active.ActiveCount);
+
+            active.EnableGroup(3);
+            Assert.IsTrue(active.IsGroupActive(3));
+        }
+
+        [Test]
+        public void VisionGroupActive_OnlyGroup_SetsSingleBit()
+        {
+            var active = VisionGroupActive.OnlyGroup(2);
+            Assert.IsTrue(active.IsGroupActive(2));
+            Assert.IsFalse(active.IsGroupActive(0));
+            Assert.AreEqual(1, active.ActiveCount);
+        }
     }
 
     /// <summary>

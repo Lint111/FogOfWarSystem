@@ -115,6 +115,40 @@ namespace FogOfWar.Visibility.GPU
     }
 
     /// <summary>
+    /// Indirect dispatch arguments for ComputeShader.DispatchIndirect().
+    /// Size: 16 bytes (4 uints)
+    /// Must be created with ComputeBufferType.IndirectArguments.
+    /// </summary>
+    [StructLayout(LayoutKind.Sequential)]
+    public struct IndirectDispatchArgsGPU
+    {
+        public uint threadGroupCountX;
+        public uint threadGroupCountY;
+        public uint threadGroupCountZ;
+        public uint padding;
+
+        public static IndirectDispatchArgsGPU Create(uint x, uint y = 1, uint z = 1)
+        {
+            return new IndirectDispatchArgsGPU
+            {
+                threadGroupCountX = x,
+                threadGroupCountY = y,
+                threadGroupCountZ = z,
+                padding = 0
+            };
+        }
+
+        /// <summary>
+        /// Calculates thread groups needed for a 1D dispatch.
+        /// </summary>
+        public static IndirectDispatchArgsGPU For1D(uint itemCount, uint threadGroupSize = 64)
+        {
+            uint groups = (itemCount + threadGroupSize - 1) / threadGroupSize;
+            return Create(groups > 0 ? groups : 1);
+        }
+    }
+
+    /// <summary>
     /// Final visibility output entry.
     /// Size: 16 bytes
     /// Layout matches HLSL: uint packed = visibilityLevel (8) | flags (8) | padding (16)

@@ -109,6 +109,16 @@ struct VisibilityEntry
     uint packed;            // visibilityLevel (8) | flags (8) | padding (16)
 };
 
+// Indirect dispatch arguments for DispatchIndirect()
+// Size: 16 bytes (4 uints)
+struct IndirectDispatchArgs
+{
+    uint threadGroupCountX;
+    uint threadGroupCountY;
+    uint threadGroupCountZ;
+    uint padding;
+};
+
 // =============================================================================
 // HELPER FUNCTIONS
 // =============================================================================

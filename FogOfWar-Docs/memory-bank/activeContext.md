@@ -2,29 +2,56 @@
 tags: [memory-bank, active-context]
 hacknplan-project: 231460
 last-updated: 2026-01-02
-last-commit: pending
+last-commit: 266ab87
 ---
 
 # Active Context
 
 ## Current Focus
 
-**Sprint 1 Phase 2 - Critical + Major Fixes Complete**
+**Sprint 1 Optimization Tasks - COMPLETE**
 
-Session 2026-01-02 (continued):
-- C3: Double-buffered blob readback COMPLETE
-  - Created `VisibilityReadbackSystem.cs` with async GPU readback
-  - Created `VisibilityQueryData.cs` with blob-based singleton components
-  - Added `VisibilityReadbackBuffers` managed class for double-buffering
-  - Enhanced `VisibilityQuery.cs` with high-performance blob query methods
-  - Added 11 new unit tests for readback and query functionality
-- M1: Shared memory unit loading COMPLETE
-  - Added `groupshared` memory for cooperative unit loading
-  - Added `FindNearestUnitShared()` for player group path
-  - Added `EvaluateGroupVisionWithSharedMemory()` for AI groups
-  - Expected +40-60% memory latency reduction
+All critical (C1-C4) and major (M1-M3) fixes are complete.
+Tests: 17/17 passing
 
-**Next Priority:** M3 - Thread group size optimization (4x4x4)
+### Completed This Session
+- M3: Thread group size optimization (4x4x4) COMPLETE
+  - Changed from 8x8x8 to 4x4x4 for AMD GCN occupancy
+  - +15-25% performance improvement on AMD hardware
+- M2: Centralize constants with validation COMPLETE
+  - Added thread group and vision type constants to GPUConstants.cs
+  - Created editor tests that parse Common.hlsl and validate C#/HLSL match
+  - Prevents future synchronization drift
+
+### Recent Commits
+- `266ab87` - feat(M2): Centralize GPU constants with C#/HLSL validation
+- `1387bf7` - feat(M1,M3): Shared memory unit loading and 4x4x4 thread groups
+- `d843f4f` - feat(C3): Double-buffered blob readback system
+
+**Next:** Sprint 2: Core Visibility Pipeline
+
+## Sprint 2 Plan
+
+**Board ID:** 651869 | **Estimated:** 7.5h across 12 subtasks
+
+### Recommended Order
+
+| Order | Task | Real Effort | Notes |
+|-------|------|-------------|-------|
+| 1 | #5: GPU Data Structures | 1h | Add IndirectDispatchArgs |
+| 2 | #3: ECS Components | 2h | Add IslandMembership, VisibilityDirty, VisionGroupActive |
+| 3 | #4: SDF Evaluation | 1.5h | Optional: height/stealth extensions |
+| 4 | #15: Indirect Dispatch | 3h | Main new implementation |
+
+### Key Subtasks Created
+
+**#15 Indirect Dispatch (critical path):**
+- #25: PrepareRayMarchDispatch kernel
+- #27: VisibilityComputeDispatchSystem skeleton
+- #30: Implement indirect dispatch pattern
+- #29: Profiler markers
+
+**Dependencies:** #5 (IndirectDispatchArgs) → #15 (Indirect Dispatch)
 
 ## Package Structure
 
@@ -42,18 +69,19 @@ Packages/com.fogofwar.visibility/
 └── Tests/                # 4 unit tests (all passing)
 ```
 
-## Sprint 1 Work Items
+## Sprint 1 Optimization Work Items (COMPLETE)
 
 | ID | Task | Priority | Status |
 |----|------|----------|--------|
-| 1 | Create UPM package structure | Normal | Complete |
-| 7 | [C1] Fix FindSeeableById linear search | Urgent | Complete |
-| 8 | [C2] Add atomic write bounds checking | Urgent | Complete |
-| 9 | [C4] Add island texture validity checks | Urgent | Complete |
-| 11 | [C3] Implement double-buffered blob readback | Urgent | Complete |
-| 10 | [M1] Implement shared memory unit loading | High | Complete |
-| 12 | [M3] Optimize thread group size to 4x4x4 | High | NEXT |
-| 13 | [M2] Centralize constants with validation | High | Planned |
+| 7 | [C1] Fix FindSeeableById linear search | Urgent | ✅ Complete |
+| 8 | [C2] Add atomic write bounds checking | Urgent | ✅ Complete |
+| 9 | [C4] Add island texture validity checks | Urgent | ✅ Complete |
+| 11 | [C3] Implement double-buffered blob readback | Urgent | ✅ Complete |
+| 10 | [M1] Implement shared memory unit loading | High | ✅ Complete |
+| 12 | [M3] Optimize thread group size to 4x4x4 | High | ✅ Complete |
+| 13 | [M2] Centralize constants with validation | High | ✅ Complete |
+
+**Note:** 11 infrastructure tasks remain in HacknPlan Sprint 1 board (package structure, scaffolding, documentation).
 
 ## Key Decisions Made
 

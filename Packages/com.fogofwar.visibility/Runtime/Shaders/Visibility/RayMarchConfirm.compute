@@ -2,6 +2,7 @@
 // Stage 3: Ray march to confirm visibility (occlusion check)
 
 #pragma kernel RayMarchConfirmation
+#pragma kernel PrepareRayMarchDispatch
 
 #include "Common.hlsl"
 #include "IslandSampling.hlsl"
@@ -20,6 +21,9 @@ StructuredBuffer<uint> _GroupIslandMasks;
 RWStructuredBuffer<VisibilityEntry> _VisibleEntities;
 RWStructuredBuffer<int> _VisibleCounts;         // Per group counter
 StructuredBuffer<int> _VisibleOffsets;          // Per group start offset
+
+// Indirect dispatch args buffer (for PrepareRayMarchDispatch kernel)
+RWStructuredBuffer<IndirectDispatchArgs> _IndirectArgs;
 
 uint _SeeableCount;
 uint _MaxVisiblePerGroup;
@@ -104,4 +108,30 @@ void RayMarchConfirmation(uint3 id : SV_DispatchThreadID)
 
         _VisibleEntities[globalIdx] = entry;
     }
+}
+
+// =============================================================================
+// INDIRECT DISPATCH PREPARATION
+// =============================================================================
+
+/// <summary>
+/// Prepares indirect dispatch arguments for RayMarchConfirmation.
+/// Run this kernel before DispatchIndirect to set thread group count
+/// based on actual candidate count (avoids CPU readback).
+/// </summary>
+[numthreads(1, 1, 1)]
+void PrepareRayMarchDispatch(uint3 id : SV_DispatchThreadID)
+{
+    uint candidateCount = (uint)max(0, _CandidateCount[0]);
+
+    // Calculate thread groups needed (ceil divide by thread group size)
+    uint threadGroups = (candidateCount + THREAD_GROUP_1D - 1) / THREAD_GROUP_1D;
+
+    // Ensure at least 1 thread group (required by DispatchIndirect)
+    threadGroups = max(1, threadGroups);
+
+    _IndirectArgs[0].threadGroupCountX = threadGroups;
+    _IndirectArgs[0].threadGroupCountY = 1;
+    _IndirectArgs[0].threadGroupCountZ = 1;
+    _IndirectArgs[0].padding = 0;
 }

@@ -1,0 +1,132 @@
+// PlayerFogVolume.compute
+// Stage 1: Generate player fog-of-war volume from unit SDFs
+// [M3 FIX] Uses 4x4x4 thread groups (64 threads) for cross-platform compatibility
+
+#pragma kernel GeneratePlayerFogVolume
+#pragma kernel ClearPlayerFogVolume
+
+#include "Common.hlsl"
+#include "SDFEvaluation.hlsl"
+#include "IslandSampling.hlsl"
+
+// Thread group configuration uses constants from Common.hlsl:
+// THREAD_GROUP_3D_X/Y/Z = 4x4x4 = 64 threads (M3 fix)
+
+// Shared memory for cooperative unit loading (reuse from SDFEvaluation.hlsl)
+groupshared UnitSDFContribution g_SharedUnits[SHARED_UNIT_BATCH_SIZE];
+
+// =============================================================================
+// BINDINGS
+// =============================================================================
+
+StructuredBuffer<VisionGroupData> _GroupData;
+StructuredBuffer<UnitSDFContribution> _UnitContributions;
+
+// Output 3D texture (typically 128x128x128)
+RWTexture3D<float> _FogVolumeOutput;
+
+// Volume parameters
+float3 _VolumeWorldMin;
+float3 _VolumeWorldMax;
+float3 _VolumeResolution;     // e.g., (128, 128, 128)
+uint _PlayerGroupId;
+
+// =============================================================================
+// HELPER FUNCTIONS
+// =============================================================================
+
+float3 VoxelToWorld(uint3 voxelCoord)
+{
+    float3 uvw = (float3(voxelCoord) + 0.5) / _VolumeResolution;
+    return lerp(_VolumeWorldMin, _VolumeWorldMax, uvw);
+}
+
+// =============================================================================
+// MAIN KERNEL: Generate fog volume
+// =============================================================================
+
+[numthreads(THREAD_GROUP_3D_X, THREAD_GROUP_3D_Y, THREAD_GROUP_3D_Z)]
+void GeneratePlayerFogVolume(
+    uint3 id : SV_DispatchThreadID,
+    uint3 groupThreadId : SV_GroupThreadID,
+    uint groupIndex : SV_GroupIndex)
+{
+    // Bounds check
+    if (any(id >= (uint3)_VolumeResolution))
+        return;
+
+    float3 worldPos = VoxelToWorld(id);
+
+    // Get player group data
+    VisionGroupData playerGroup = _GroupData[_PlayerGroupId];
+
+    // Quick bounds check against player group
+    float distToGroup = length(worldPos - playerGroup.groupCenter);
+    if (distToGroup > playerGroup.maxViewDistance + playerGroup.groupBoundingRadius)
+    {
+        _FogVolumeOutput[id] = 0.0;
+        return;
+    }
+
+    // Evaluate combined SDF using shared memory batching
+    float bestSDF = 1e10;
+    uint totalUnits = (uint)playerGroup.unitCount;
+    uint unitStart = (uint)playerGroup.unitStartIndex;
+
+    // Process units in batches
+    for (uint batchStart = 0; batchStart < totalUnits; batchStart += SHARED_UNIT_BATCH_SIZE)
+    {
+        uint batchSize = min(SHARED_UNIT_BATCH_SIZE, totalUnits - batchStart);
+
+        // [M1 FIX] Cooperative load using 64 threads (4x4x4)
+        // Each thread loads up to 2 units (128/64 = 2)
+        uint unitsPerThread = (batchSize + 63) / 64;
+        for (uint i = 0; i < unitsPerThread; i++)
+        {
+            uint localIdx = groupIndex + i * 64;
+            if (localIdx < batchSize)
+            {
+                g_SharedUnits[localIdx] = _UnitContributions[unitStart + batchStart + localIdx];
+            }
+        }
+
+        GroupMemoryBarrierWithGroupSync();
+
+        // Evaluate this batch
+        for (uint j = 0; j < batchSize; j++)
+        {
+            UnitSDFContribution unit = g_SharedUnits[j];
+
+            // Quick distance cull
+            float dist = length(worldPos - unit.position);
+            if (dist > playerGroup.maxViewDistance + unit.primaryRadius)
+                continue;
+
+            float sdf = EvaluateUnitVision(worldPos, unit);
+            bestSDF = min(bestSDF, sdf);
+        }
+
+        GroupMemoryBarrierWithGroupSync();
+    }
+
+    // Convert SDF to visibility (0-1)
+    // Negative SDF = inside vision volume = visible
+    float visibility = saturate(-bestSDF * 0.5 + 0.5);
+
+    // TODO: Sample island SDF for occlusion
+    // For now, just output the raw visibility
+    _FogVolumeOutput[id] = visibility;
+}
+
+// =============================================================================
+// CLEAR KERNEL: Reset volume to zero
+// =============================================================================
+
+[numthreads(THREAD_GROUP_3D_X, THREAD_GROUP_3D_Y, THREAD_GROUP_3D_Z)]
+void ClearPlayerFogVolume(uint3 id : SV_DispatchThreadID)
+{
+    if (any(id >= (uint3)_VolumeResolution))
+        return;
+
+    _FogVolumeOutput[id] = 0.0;
+}

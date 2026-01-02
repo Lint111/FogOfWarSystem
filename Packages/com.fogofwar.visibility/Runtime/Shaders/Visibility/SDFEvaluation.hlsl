@@ -7,6 +7,18 @@
 #include "Common.hlsl"
 
 // =============================================================================
+// [M1 FIX] SHARED MEMORY FOR COOPERATIVE UNIT LOADING
+// =============================================================================
+
+// Maximum units that can be loaded into shared memory per batch
+// 48 bytes per unit * 128 units = 6KB (well within 16-48KB limit)
+#define SHARED_UNIT_BATCH_SIZE 128
+
+// Shared memory for cooperative unit loading
+// Declared in compute shader that includes this file
+// groupshared UnitSDFContribution g_SharedUnits[SHARED_UNIT_BATCH_SIZE];
+
+// =============================================================================
 // PRIMITIVE SDF FUNCTIONS
 // =============================================================================
 
@@ -115,6 +127,79 @@ float SDFToVisibility(float sdf, float targetRadius)
     // Negative SDF = inside vision volume
     // Map [-targetRadius, +targetRadius] to [1, 0]
     return saturate(-sdf / max(targetRadius, 0.1) + 0.5);
+}
+
+// =============================================================================
+// [M1 FIX] SHARED MEMORY OPTIMIZED GROUP EVALUATION
+// =============================================================================
+
+// Cooperative loading helper - call from all threads in group
+// Returns number of units loaded into shared memory this batch
+uint CooperativeLoadUnits(
+    uint threadIdInGroup,
+    uint groupThreadCount,
+    uint batchStart,
+    uint totalUnits,
+    uint unitBufferStart,
+    StructuredBuffer<UnitSDFContribution> units,
+    inout UnitSDFContribution sharedUnits[SHARED_UNIT_BATCH_SIZE])
+{
+    uint batchSize = min(SHARED_UNIT_BATCH_SIZE, totalUnits - batchStart);
+
+    // Each thread loads ceil(batchSize / groupThreadCount) units
+    uint unitsPerThread = (batchSize + groupThreadCount - 1) / groupThreadCount;
+
+    for (uint i = 0; i < unitsPerThread; i++)
+    {
+        uint localIdx = threadIdInGroup + i * groupThreadCount;
+        if (localIdx < batchSize)
+        {
+            uint globalIdx = unitBufferStart + batchStart + localIdx;
+            sharedUnits[localIdx] = units[globalIdx];
+        }
+    }
+
+    return batchSize;
+}
+
+// Evaluate group vision using shared memory batching
+// Requires: g_SharedUnits declared as groupshared in compute shader
+// Requires: GroupMemoryBarrierWithGroupSync() called after each batch load
+float EvaluateGroupVisionShared(
+    float3 targetPos,
+    VisionGroupData group,
+    uint batchSize,
+    UnitSDFContribution sharedUnits[SHARED_UNIT_BATCH_SIZE],
+    inout int nearestUnit,
+    inout float nearestDist,
+    uint batchStartIndex)  // Offset to convert shared index to global
+{
+    float bestSDF = 1e10;
+
+    for (uint i = 0; i < batchSize; i++)
+    {
+        UnitSDFContribution unit = sharedUnits[i];
+
+        // Quick distance cull
+        float dist = length(targetPos - unit.position);
+        if (dist > group.maxViewDistance + unit.primaryRadius)
+            continue;
+
+        float sdf = EvaluateUnitVision(targetPos, unit);
+
+        if (sdf < bestSDF)
+        {
+            bestSDF = sdf;
+        }
+
+        if (dist < nearestDist)
+        {
+            nearestDist = dist;
+            nearestUnit = (int)(batchStartIndex + i);
+        }
+    }
+
+    return bestSDF;
 }
 
 #endif // SDF_EVALUATION_HLSL

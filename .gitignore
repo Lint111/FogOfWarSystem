@@ -86,3 +86,7 @@ crashlytics-build.properties
 /[Aa]ssets/[Ss]treamingAssets/aa/*
 Assets/InitTestScene*.unity
 Assets/InitTestScene*.unity.meta
+
+# Unity project settings (editor state, not project config)
+ProjectSettings/EditorSettings.asset
+ProjectSettings/ProjectSettings.asset

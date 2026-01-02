@@ -7,6 +7,14 @@
 #include "SDFEvaluation.hlsl"
 
 // =============================================================================
+// [M1 FIX] SHARED MEMORY DECLARATION
+// =============================================================================
+
+// Shared memory for cooperative unit loading
+// Used when finding nearest unit in player group
+groupshared UnitSDFContribution g_SharedUnits[SHARED_UNIT_BATCH_SIZE];
+
+// =============================================================================
 // BINDINGS
 // =============================================================================
 
@@ -42,8 +50,120 @@ float3 WorldToVolumeUVW(float3 worldPos)
 // MAIN KERNEL
 // =============================================================================
 
+// [M1 FIX] Helper: Find nearest unit using shared memory batching
+// All threads in group cooperatively load units, then each thread searches
+void FindNearestUnitShared(
+    uint3 groupThreadId,
+    float3 targetPos,
+    VisionGroupData viewer,
+    out int nearestUnit,
+    out float nearestDist)
+{
+    nearestUnit = -1;
+    nearestDist = 1e10;
+
+    uint totalUnits = (uint)viewer.unitCount;
+    uint unitStart = (uint)viewer.unitStartIndex;
+
+    // Process units in batches that fit in shared memory
+    for (uint batchStart = 0; batchStart < totalUnits; batchStart += SHARED_UNIT_BATCH_SIZE)
+    {
+        uint batchSize = min(SHARED_UNIT_BATCH_SIZE, totalUnits - batchStart);
+
+        // Cooperative load: each thread loads some units
+        // Thread group size is 64, batch size up to 128
+        // Each thread loads up to 2 units
+        uint unitsPerThread = (batchSize + 63) / 64;
+        for (uint i = 0; i < unitsPerThread; i++)
+        {
+            uint localIdx = groupThreadId.x + i * 64;
+            if (localIdx < batchSize)
+            {
+                g_SharedUnits[localIdx] = _UnitContributions[unitStart + batchStart + localIdx];
+            }
+        }
+
+        // Ensure all threads have finished loading
+        GroupMemoryBarrierWithGroupSync();
+
+        // Each thread now searches this batch
+        for (uint j = 0; j < batchSize; j++)
+        {
+            float d = length(targetPos - g_SharedUnits[j].position);
+            if (d < nearestDist)
+            {
+                nearestDist = d;
+                nearestUnit = (int)(unitStart + batchStart + j);
+            }
+        }
+
+        // Sync before next batch overwrites shared memory
+        GroupMemoryBarrierWithGroupSync();
+    }
+}
+
+// [M1 FIX] Helper: Evaluate group SDF using shared memory batching
+float EvaluateGroupVisionWithSharedMemory(
+    uint3 groupThreadId,
+    float3 targetPos,
+    VisionGroupData viewer,
+    out int nearestUnit,
+    out float nearestDist)
+{
+    float bestSDF = 1e10;
+    nearestUnit = -1;
+    nearestDist = 1e10;
+
+    uint totalUnits = (uint)viewer.unitCount;
+    uint unitStart = (uint)viewer.unitStartIndex;
+
+    // Process units in batches
+    for (uint batchStart = 0; batchStart < totalUnits; batchStart += SHARED_UNIT_BATCH_SIZE)
+    {
+        uint batchSize = min(SHARED_UNIT_BATCH_SIZE, totalUnits - batchStart);
+
+        // Cooperative load
+        uint unitsPerThread = (batchSize + 63) / 64;
+        for (uint i = 0; i < unitsPerThread; i++)
+        {
+            uint localIdx = groupThreadId.x + i * 64;
+            if (localIdx < batchSize)
+            {
+                g_SharedUnits[localIdx] = _UnitContributions[unitStart + batchStart + localIdx];
+            }
+        }
+
+        GroupMemoryBarrierWithGroupSync();
+
+        // Evaluate this batch
+        for (uint j = 0; j < batchSize; j++)
+        {
+            UnitSDFContribution unit = g_SharedUnits[j];
+
+            float dist = length(targetPos - unit.position);
+            if (dist > viewer.maxViewDistance + unit.primaryRadius)
+                continue;
+
+            float sdf = EvaluateUnitVision(targetPos, unit);
+
+            if (sdf < bestSDF)
+                bestSDF = sdf;
+
+            if (dist < nearestDist)
+            {
+                nearestDist = dist;
+                nearestUnit = (int)(unitStart + batchStart + j);
+            }
+        }
+
+        GroupMemoryBarrierWithGroupSync();
+    }
+
+    return bestSDF;
+}
+
 [numthreads(64, 1, 1)]
-void ComputeAllGroupsVisibility(uint3 id : SV_DispatchThreadID)
+void ComputeAllGroupsVisibility(uint3 id : SV_DispatchThreadID, uint3 groupThreadId : SV_GroupThreadID)
 {
     if (id.x >= _SeeableCount)
         return;
@@ -91,28 +211,19 @@ void ComputeAllGroupsVisibility(uint3 id : SV_DispatchThreadID)
             float3 uvw = WorldToVolumeUVW(targetPos);
             visibility = _PlayerFogVolume.SampleLevel(sampler_PlayerFogVolume, uvw, 0);
 
-            // Still find nearest unit for output
+            // [M1 FIX] Use shared memory for nearest unit search
             if (visibility > VISIBILITY_THRESHOLD)
             {
-                for (int i = 0; i < viewer.unitCount; i++)
-                {
-                    int idx = viewer.unitStartIndex + i;
-                    float d = length(targetPos - _UnitContributions[idx].position);
-                    if (d < nearestDist)
-                    {
-                        nearestDist = d;
-                        nearestUnit = idx;
-                    }
-                }
+                FindNearestUnitShared(groupThreadId, targetPos, viewer, nearestUnit, nearestDist);
             }
         }
         else
         {
-            // AI groups: direct SDF evaluation
-            float sdf = EvaluateGroupVision(
+            // [M1 FIX] AI groups: Use shared memory optimized SDF evaluation
+            float sdf = EvaluateGroupVisionWithSharedMemory(
+                groupThreadId,
                 targetPos,
                 viewer,
-                _UnitContributions,
                 nearestUnit,
                 nearestDist);
 

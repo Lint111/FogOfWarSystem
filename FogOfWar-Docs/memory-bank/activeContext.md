@@ -2,73 +2,75 @@
 tags: [memory-bank, active-context]
 hacknplan-project: 231460
 last-updated: 2026-01-02
+last-commit: d5f5a67
 ---
 
 # Active Context
 
 ## Current Focus
 
-**Task #1 Complete - UPM Package Structure Created**
+**Sprint 1 Phase 1 Complete - Critical Fixes Implemented**
 
-Created testable UPM package at `Packages/com.fogofwar.visibility/` with:
-- 4 assembly definitions (Runtime, Editor, Tests/Runtime, Tests/Editor)
-- Core ECS components (VisionGroupMembership, UnitVision, Seeable, VisibleToGroups)
-- Query API scaffold
-- Unit tests verifying component behavior
-- Full package metadata (package.json, README, CHANGELOG, LICENSE)
+Session 2026-01-02 completed:
+- UPM package structure created
+- C1: FindSeeableById O(1) lookup via seeableIndex
+- C2: Atomic write bounds checking with rollback
+- C4: Island texture validity mask
 
-## Review Summary
+**Next Priority:** C3 - Double-buffered blob readback
 
-| Reviewer | Key Findings |
-|----------|--------------|
-| Architecture Critic | 2 critical issues (linear search, race conditions), good foundation |
-| Vulkan Expert | Thread group optimization, shared memory, indirect dispatch needed |
-| Test Framework QA | CPU mirror strategy for testing, CI/CD pipeline recommendations |
-| UI/UX Engineer | Error feedback needed, artist/designer tooling required |
+## Package Structure
 
-## Critical Issues (Must Fix First)
-
-1. **C1**: `FindSeeableById` O(n) search → use direct index
-2. **C2**: Atomic write bounds checking missing
-3. **C3**: Per-frame blob allocation → double-buffer
-4. **C4**: Island texture validity checks missing
+```
+Packages/com.fogofwar.visibility/
+├── Runtime/
+│   ├── Scripts/
+│   │   ├── Components/   # VisionGroupMembership, UnitVision, Seeable, VisibleToGroups
+│   │   ├── GPU/          # GPUDataStructures.cs (aligned structs)
+│   │   └── Query/        # VisibilityQuery.cs (public API)
+│   └── Shaders/
+│       └── Visibility/   # Common.hlsl, SDFEvaluation.hlsl, IslandSampling.hlsl
+│                         # VisibilityCheck.compute, RayMarchConfirm.compute
+├── Editor/               # VisibilityEditorUtility.cs
+└── Tests/                # 4 unit tests (all passing)
+```
 
 ## Sprint 1 Work Items
 
 | ID | Task | Priority | Status |
 |----|------|----------|--------|
-| 1 | Create UPM package structure | Normal | **Complete** |
-| 6 | Design Review Implementation (User Story) | Urgent | Planned |
-| 7 | [C1] Fix FindSeeableById linear search | Urgent | Planned |
-| 8 | [C2] Add atomic write bounds checking | Urgent | Planned |
-| 11 | [C3] Implement double-buffered blob readback | Urgent | Planned |
-| 9 | [C4] Add island texture validity checks | Urgent | Planned |
+| 1 | Create UPM package structure | Normal | Complete |
+| 7 | [C1] Fix FindSeeableById linear search | Urgent | Complete |
+| 8 | [C2] Add atomic write bounds checking | Urgent | Complete |
+| 9 | [C4] Add island texture validity checks | Urgent | Complete |
+| 11 | [C3] Implement double-buffered blob readback | Urgent | NEXT |
 | 10 | [M1] Implement shared memory unit loading | High | Planned |
 | 12 | [M3] Optimize thread group size to 4x4x4 | High | Planned |
 | 13 | [M2] Centralize constants with validation | High | Planned |
 
 ## Key Decisions Made
 
-1. **Thread Group Size**: Change to 4x4x4 (64 threads) for cross-platform
-2. **Readback Strategy**: Triple-buffer (write/readback/ready rotation)
-3. **Test Strategy**: CPU mirror for SDF functions, GPU tests on self-hosted CI
-
-## Implementation Order
-
-1. **Phase 1 - Critical Fixes** (C1-C4)
-2. **Phase 2 - Core Performance** (M1-M3, indirect dispatch)
-3. **Phase 3 - DX/UX** (authoring, error feedback)
-4. **Phase 4 - Test Infrastructure**
+1. GPU Structure Alignment: 16/32/48/64 byte boundaries
+2. C1 Fix: seeableIndex field in VisibilityCandidate (O(1) lookup)
+3. C2 Fix: Bounds check + counter rollback pattern
+4. C4 Fix: _IslandValidityMask uniform in all island sampling
+5. Unity MCP: Use code-executor sandbox for script edits
 
 ## Next Steps
 
-1. ~~Start with task #1 (UPM package structure)~~ **DONE**
-2. Open Unity Editor to verify package compiles
-3. Then critical fix C1 (linear search)
-4. Address C2-C4 in parallel if possible
+1. [C3] Double-buffered blob readback - Create VisibilityReadbackSystem.cs
+2. PlayerFogVolume.compute - Stage 1 of GPU pipeline
+3. ECS Systems - Data collection, compute dispatch, readback processing
+
+## Continuation Checklist
+
+- [ ] Unity Editor open with project
+- [ ] Tests pass (Window > Test Runner)
+- [ ] Unity MCP server running (if editing via Claude)
+- [ ] Read Sessions/2026-01-02-summary.md for full context
 
 ## Vault References
 
-- [[05-Progress/features/design-review-findings]] - Full review details
+- [[Sessions/2026-01-02-summary]] - Detailed session handoff
+- [[05-Progress/features/design-review-findings]] - All issues from review
 - [[01-Architecture/Overview]] - System architecture
-- [[01-Architecture/GPU-Pipeline]] - GPU compute design

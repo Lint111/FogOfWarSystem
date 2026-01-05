@@ -30,6 +30,10 @@ uint _IslandCount;
 // [C4 FIX] Island validity flags (bit per island)
 uint _IslandValidityMask;
 
+// [DYN] Island dynamic flags - bit set = island uses dynamic RenderTexture
+// Can be used for specialized filtering or debugging
+uint _IslandDynamicMask;
+
 // =============================================================================
 // ISLAND SDF TEXTURE SAMPLING (internal)
 // =============================================================================

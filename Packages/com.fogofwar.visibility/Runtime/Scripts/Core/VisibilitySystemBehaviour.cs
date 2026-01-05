@@ -98,13 +98,36 @@ namespace FogOfWar.Visibility.Core
         }
 
         /// <summary>
-        /// Unregisters an island SDF texture.
+        /// Registers a dynamic (RenderTexture) island SDF at the specified slot.
+        /// Use for runtime-modifiable environments (destructible terrain, moving obstacles).
+        /// The RenderTexture must be a 3D texture with enableRandomWrite=true.
+        /// </summary>
+        /// <param name="slot">Texture slot index (0-7)</param>
+        /// <param name="texture">The dynamic SDF RenderTexture, or null to clear</param>
+        public void RegisterDynamicIslandSDF(int slot, RenderTexture texture)
+        {
+            if (Runtime == null)
+            {
+                Debug.LogWarning("[VisibilitySystemBehaviour] Cannot register dynamic island - runtime not initialized");
+                return;
+            }
+
+            Runtime.SetDynamicIslandTexture(slot, texture);
+        }
+
+        /// <summary>
+        /// Unregisters an island SDF texture (both static and dynamic).
         /// </summary>
         /// <param name="slot">Texture slot index (0-7)</param>
         public void UnregisterIslandSDF(int slot)
         {
             Runtime?.ClearIslandTexture(slot);
         }
+
+        /// <summary>
+        /// Returns true if the island at this slot uses a dynamic RenderTexture.
+        /// </summary>
+        public bool IsIslandDynamic(int slot) => Runtime?.IsIslandDynamic(slot) ?? false;
 
         /// <summary>
         /// Subscribe to visibility change events.

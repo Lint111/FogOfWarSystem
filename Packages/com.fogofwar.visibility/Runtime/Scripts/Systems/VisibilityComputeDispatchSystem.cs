@@ -97,15 +97,8 @@ namespace FogOfWar.Visibility.Systems
             shader.SetInt("_IslandCount", runtime.IslandCount);
             shader.SetInt("_IslandValidityMask", (int)runtime.IslandValidityMask);
 
-            // Bind island SDF textures
-            shader.SetTexture(kernel, "_IslandSDF0", runtime.GetIslandTextureOrDummy(0));
-            shader.SetTexture(kernel, "_IslandSDF1", runtime.GetIslandTextureOrDummy(1));
-            shader.SetTexture(kernel, "_IslandSDF2", runtime.GetIslandTextureOrDummy(2));
-            shader.SetTexture(kernel, "_IslandSDF3", runtime.GetIslandTextureOrDummy(3));
-            shader.SetTexture(kernel, "_IslandSDF4", runtime.GetIslandTextureOrDummy(4));
-            shader.SetTexture(kernel, "_IslandSDF5", runtime.GetIslandTextureOrDummy(5));
-            shader.SetTexture(kernel, "_IslandSDF6", runtime.GetIslandTextureOrDummy(6));
-            shader.SetTexture(kernel, "_IslandSDF7", runtime.GetIslandTextureOrDummy(7));
+            // Bind island SDF textures (supports both static and dynamic)
+            runtime.BindIslandTextures(shader, kernel);
 
             // Dispatch
             int groups = config.FogResolution / GPUConstants.THREAD_GROUP_3D_X;
@@ -173,15 +166,8 @@ namespace FogOfWar.Visibility.Systems
             shader.SetInt("_IslandCount", runtime.IslandCount);
             shader.SetInt("_IslandValidityMask", (int)runtime.IslandValidityMask);
 
-            // Bind island SDF textures
-            shader.SetTexture(kernel, "_IslandSDF0", runtime.GetIslandTextureOrDummy(0));
-            shader.SetTexture(kernel, "_IslandSDF1", runtime.GetIslandTextureOrDummy(1));
-            shader.SetTexture(kernel, "_IslandSDF2", runtime.GetIslandTextureOrDummy(2));
-            shader.SetTexture(kernel, "_IslandSDF3", runtime.GetIslandTextureOrDummy(3));
-            shader.SetTexture(kernel, "_IslandSDF4", runtime.GetIslandTextureOrDummy(4));
-            shader.SetTexture(kernel, "_IslandSDF5", runtime.GetIslandTextureOrDummy(5));
-            shader.SetTexture(kernel, "_IslandSDF6", runtime.GetIslandTextureOrDummy(6));
-            shader.SetTexture(kernel, "_IslandSDF7", runtime.GetIslandTextureOrDummy(7));
+            // Bind island SDF textures (supports both static and dynamic)
+            runtime.BindIslandTextures(shader, kernel);
         }
 
         // =============================================================================

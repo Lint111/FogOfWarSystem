@@ -38,8 +38,18 @@ namespace FogOfWar.Visibility.Core
         public Texture3D DummyIslandSDF { get; private set; }
 
         // ===== Island SDF Registry =====
+        /// <summary>Static baked SDF textures (Texture3D)</summary>
         public Texture3D[] IslandTextures { get; } = new Texture3D[GPUConstants.MAX_ISLANDS];
+
+        /// <summary>Dynamic SDF textures (RenderTexture) for runtime-modifiable environments</summary>
+        public RenderTexture[] DynamicIslandTextures { get; } = new RenderTexture[GPUConstants.MAX_ISLANDS];
+
+        /// <summary>Bitmask: bit set = island uses dynamic RenderTexture instead of static Texture3D</summary>
+        public uint IslandDynamicMask { get; private set; }
+
+        /// <summary>Bitmask: bit set = island slot has valid texture assigned</summary>
         public uint IslandValidityMask { get; private set; }
+
         public int LastIslandModifiedFrame { get; private set; }
 
         // ===== Compute Kernels =====
@@ -202,37 +212,66 @@ namespace FogOfWar.Visibility.Core
         // ===== Island SDF Management =====
 
         /// <summary>
-        /// Registers an island SDF texture at the specified slot.
+        /// Registers a static (baked) island SDF texture at the specified slot.
+        /// Use for pre-baked environments that don't change at runtime.
         /// </summary>
         public void SetIslandTexture(int slot, Texture3D texture)
         {
-            if (slot < 0 || slot >= GPUConstants.MAX_ISLANDS)
+            if (!ValidateSlot(slot)) return;
+
+            IslandTextures[slot] = texture;
+            DynamicIslandTextures[slot] = null; // Clear dynamic if setting static
+            IslandDynamicMask &= ~(1u << slot); // Mark as static
+
+            UpdateValidityMask(slot, texture != null);
+        }
+
+        /// <summary>
+        /// Registers a dynamic (RenderTexture) island SDF at the specified slot.
+        /// Use for runtime-modifiable environments (destructible terrain, moving obstacles).
+        /// The RenderTexture must be a 3D texture with enableRandomWrite=true.
+        /// </summary>
+        public void SetDynamicIslandTexture(int slot, RenderTexture texture)
+        {
+            if (!ValidateSlot(slot)) return;
+
+            if (texture != null && texture.dimension != UnityEngine.Rendering.TextureDimension.Tex3D)
             {
-                Debug.LogWarning($"[VisibilitySystemRuntime] Invalid island slot {slot}, must be 0-{GPUConstants.MAX_ISLANDS - 1}");
+                Debug.LogError($"[VisibilitySystemRuntime] Dynamic island texture must be 3D. Slot {slot} texture is {texture.dimension}");
                 return;
             }
 
-            IslandTextures[slot] = texture;
+            DynamicIslandTextures[slot] = texture;
+            IslandTextures[slot] = null; // Clear static if setting dynamic
+            IslandDynamicMask |= (1u << slot); // Mark as dynamic
 
-            if (texture != null)
-                IslandValidityMask |= (1u << slot);
-            else
-                IslandValidityMask &= ~(1u << slot);
-
-            LastIslandModifiedFrame = Time.frameCount;
-            Debug.Log($"[VisibilitySystemRuntime] Island slot {slot} {(texture != null ? "set" : "cleared")}, mask=0x{IslandValidityMask:X}");
+            UpdateValidityMask(slot, texture != null);
         }
 
         /// <summary>
-        /// Clears an island SDF texture slot.
+        /// Clears an island SDF texture slot (both static and dynamic).
         /// </summary>
         public void ClearIslandTexture(int slot)
         {
-            SetIslandTexture(slot, null);
+            if (!ValidateSlot(slot)) return;
+
+            IslandTextures[slot] = null;
+            DynamicIslandTextures[slot] = null;
+            IslandDynamicMask &= ~(1u << slot);
+            UpdateValidityMask(slot, false);
         }
 
         /// <summary>
-        /// Gets an island SDF texture, or null if not set.
+        /// Returns true if the island at this slot uses a dynamic RenderTexture.
+        /// </summary>
+        public bool IsIslandDynamic(int slot)
+        {
+            if (slot < 0 || slot >= GPUConstants.MAX_ISLANDS) return false;
+            return (IslandDynamicMask & (1u << slot)) != 0;
+        }
+
+        /// <summary>
+        /// Gets an island SDF texture (static), or null if not set or is dynamic.
         /// </summary>
         public Texture3D GetIslandTexture(int slot)
         {
@@ -242,13 +281,75 @@ namespace FogOfWar.Visibility.Core
         }
 
         /// <summary>
-        /// Gets the texture for a slot, or the dummy texture if not set.
+        /// Gets a dynamic island SDF texture, or null if not set or is static.
+        /// </summary>
+        public RenderTexture GetDynamicIslandTexture(int slot)
+        {
+            if (slot < 0 || slot >= GPUConstants.MAX_ISLANDS)
+                return null;
+            return DynamicIslandTextures[slot];
+        }
+
+        /// <summary>
+        /// Gets the appropriate texture for a slot (static or dynamic), cast to Texture.
+        /// Returns dummy texture if slot is invalid or empty.
         /// Use this when binding to compute shaders.
+        /// </summary>
+        public Texture GetIslandTextureForBinding(int slot)
+        {
+            if (slot < 0 || slot >= GPUConstants.MAX_ISLANDS)
+                return DummyIslandSDF;
+
+            if ((IslandValidityMask & (1u << slot)) == 0)
+                return DummyIslandSDF;
+
+            if ((IslandDynamicMask & (1u << slot)) != 0)
+                return DynamicIslandTextures[slot] ?? (Texture)DummyIslandSDF;
+
+            return IslandTextures[slot] ?? (Texture)DummyIslandSDF;
+        }
+
+        /// <summary>
+        /// Gets the texture for a slot, or the dummy texture if not set.
+        /// Use this when binding to compute shaders (legacy compatibility).
         /// </summary>
         public Texture3D GetIslandTextureOrDummy(int slot)
         {
             var tex = GetIslandTexture(slot);
             return tex != null ? tex : DummyIslandSDF;
+        }
+
+        /// <summary>
+        /// Binds all island textures to a compute shader kernel.
+        /// Handles both static and dynamic textures automatically.
+        /// </summary>
+        public void BindIslandTextures(ComputeShader shader, int kernel)
+        {
+            for (int i = 0; i < GPUConstants.MAX_ISLANDS; i++)
+            {
+                shader.SetTexture(kernel, $"_IslandSDF{i}", GetIslandTextureForBinding(i));
+            }
+            shader.SetInt("_IslandDynamicMask", (int)IslandDynamicMask);
+        }
+
+        private bool ValidateSlot(int slot)
+        {
+            if (slot < 0 || slot >= GPUConstants.MAX_ISLANDS)
+            {
+                Debug.LogWarning($"[VisibilitySystemRuntime] Invalid island slot {slot}, must be 0-{GPUConstants.MAX_ISLANDS - 1}");
+                return false;
+            }
+            return true;
+        }
+
+        private void UpdateValidityMask(int slot, bool isValid)
+        {
+            if (isValid)
+                IslandValidityMask |= (1u << slot);
+            else
+                IslandValidityMask &= ~(1u << slot);
+
+            LastIslandModifiedFrame = Time.frameCount;
         }
 
         // ===== Event Firing =====
@@ -318,8 +419,12 @@ namespace FogOfWar.Visibility.Core
 
             // Clear island references
             for (int i = 0; i < GPUConstants.MAX_ISLANDS; i++)
+            {
                 IslandTextures[i] = null;
+                DynamicIslandTextures[i] = null;
+            }
             IslandValidityMask = 0;
+            IslandDynamicMask = 0;
 
             Debug.Log("[VisibilitySystemRuntime] Disposed");
         }

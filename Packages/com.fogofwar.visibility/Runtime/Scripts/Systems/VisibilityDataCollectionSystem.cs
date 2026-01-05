@@ -2,8 +2,8 @@ using Unity.Entities;
 using Unity.Collections;
 using Unity.Mathematics;
 using Unity.Transforms;
-using Unity.Burst;
 using FogOfWar.Visibility.Components;
+using FogOfWar.Visibility.Core;
 using FogOfWar.Visibility.GPU;
 
 namespace FogOfWar.Visibility.Systems
@@ -11,6 +11,7 @@ namespace FogOfWar.Visibility.Systems
     /// <summary>
     /// Collects ECS visibility data and uploads to GPU buffers.
     /// Runs before VisibilityComputeDispatchSystem.
+    /// Uses VisibilitySystemBehaviour.Instance.Runtime for buffer access.
     /// </summary>
     [UpdateInGroup(typeof(VisibilitySystemGroup))]
     [UpdateBefore(typeof(VisibilityComputeDispatchSystem))]
@@ -77,6 +78,11 @@ namespace FogOfWar.Visibility.Systems
 
         protected override void OnUpdate()
         {
+            // Get runtime from MonoBehaviour
+            var behaviour = VisibilitySystemBehaviour.Instance;
+            if (behaviour == null || !behaviour.IsReady)
+                return;
+
             // Clear staging buffers
             _groupDataStaging.Clear();
             _unitStaging.Clear();
@@ -95,8 +101,8 @@ namespace FogOfWar.Visibility.Systems
             CollectIslands();
             BuildGroupData();
 
-            // Upload to GPU via the dispatch system's buffers
-            UploadToGPU();
+            // Upload to GPU via Runtime
+            UploadToGPU(behaviour.Runtime);
         }
 
         private void CollectUnits()
@@ -147,10 +153,8 @@ namespace FogOfWar.Visibility.Systems
                     secondaryParam = vision.Type == VisionType.SphereWithCone
                         ? vision.ConeHalfAngle
                         : vision.SecondaryRadius,
-                    visionType = (byte)vision.Type,
-                    flags = 0,
-                    ownerGroupId = groupId,
-                    padding = float4.zero
+                    packedFlags = UnitSDFContributionGPU.PackFlags((byte)vision.Type, 0, groupId),
+                    padding = float3.zero
                 };
 
                 _unitStaging[writePos[groupId]++] = gpu;
@@ -180,10 +184,8 @@ namespace FogOfWar.Visibility.Systems
                     entityId = entities[i].Index,
                     position = ltw.Position + new float3(0, seeable.HeightOffset, 0),
                     boundingRadius = 0.5f, // Default bounding radius
-                    ownerGroupId = membership.GroupId,
-                    seeableByMask = 0xFF, // Visible to all groups by default
-                    flags = 0,
-                    padding = float4.zero
+                    packedFlags = SeeableEntityDataGPU.PackFlags(membership.GroupId, 0xFF, 0),
+                    padding = float2.zero
                 };
 
                 _seeableStaging.Add(gpu);
@@ -200,20 +202,43 @@ namespace FogOfWar.Visibility.Systems
             var definitions = _islandQuery.ToComponentDataArray<EnvironmentIslandDefinition>(Allocator.Temp);
             var transforms = _islandQuery.ToComponentDataArray<LocalToWorld>(Allocator.Temp);
 
+            // Get runtime validity mask (source of truth for which islands have textures)
+            var behaviour = VisibilitySystemBehaviour.Instance;
+            uint runtimeValidityMask = behaviour?.Runtime?.IslandValidityMask ?? 0;
+
             for (int i = 0; i < definitions.Length && i < GPUConstants.MAX_ISLANDS; i++)
             {
                 var def = definitions[i];
                 var ltw = transforms[i];
 
-                if (!def.IsLoaded)
+                // Use runtime validity mask instead of baked IsLoaded flag
+                bool isValid = (runtimeValidityMask & (1u << def.TextureIndex)) != 0;
+                if (!isValid)
                     continue;
 
-                // Extract rotation from LocalToWorld
-                var rotation = new quaternion(ltw.Value);
+                // Extract rotation and scale from LocalToWorld matrix
+                // Scale is the length of each column vector
+                float3 scale = new float3(
+                    math.length(ltw.Value.c0.xyz),
+                    math.length(ltw.Value.c1.xyz),
+                    math.length(ltw.Value.c2.xyz)
+                );
+
+                // Apply scale to half extents
+                float3 scaledHalfExtents = def.LocalHalfExtents * scale;
+
+                // Extract rotation by normalizing columns to remove scale
+                // IMPORTANT: Must normalize before quaternion extraction!
+                float3x3 rotMatrix = new float3x3(
+                    math.normalizesafe(ltw.Value.c0.xyz),
+                    math.normalizesafe(ltw.Value.c1.xyz),
+                    math.normalizesafe(ltw.Value.c2.xyz)
+                );
+                var rotation = new quaternion(rotMatrix);
 
                 var gpu = EnvironmentIslandGPU.Create(
                     ltw.Position,
-                    def.LocalHalfExtents,
+                    scaledHalfExtents,
                     rotation,
                     new float3(def.TextureResolution),
                     def.TextureIndex
@@ -278,40 +303,46 @@ namespace FogOfWar.Visibility.Systems
             }
         }
 
-        private void UploadToGPU()
+        private void UploadToGPU(VisibilitySystemRuntime runtime)
         {
-            // Get buffer reference from dispatch system
-            if (!SystemAPI.ManagedAPI.TryGetSingleton<VisibilityGPUBuffersRef>(out var buffersRef))
-                return;
+            // Compute active group mask (for early rejection in shaders)
+            uint activeGroupMask = 0;
+            for (int g = 0; g < _groupDataStaging.Length && g < GPUConstants.MAX_GROUPS; g++)
+            {
+                if (_groupDataStaging[g].unitCount > 0)
+                {
+                    activeGroupMask |= (1u << g);
+                }
+            }
+            runtime.ActiveGroupMask = activeGroupMask;
 
             // Upload group data
-            if (buffersRef.GroupData != null && _groupDataStaging.Length > 0)
+            if (runtime.GroupDataBuffer != null && _groupDataStaging.Length > 0)
             {
-                buffersRef.GroupData.SetData(_groupDataStaging.AsArray());
+                runtime.GroupDataBuffer.SetData(_groupDataStaging.AsArray());
             }
 
             // Upload unit contributions
-            if (buffersRef.UnitContributions != null && _unitStaging.Length > 0)
+            if (runtime.UnitContributionsBuffer != null && _unitStaging.Length > 0)
             {
-                buffersRef.UnitContributions.SetData(_unitStaging.AsArray());
+                runtime.UnitContributionsBuffer.SetData(_unitStaging.AsArray());
             }
 
             // Upload seeables
-            if (buffersRef.SeeableEntities != null && _seeableStaging.Length > 0)
+            if (runtime.SeeableEntitiesBuffer != null && _seeableStaging.Length > 0)
             {
-                buffersRef.SeeableEntities.SetData(_seeableStaging.AsArray());
+                runtime.SeeableEntitiesBuffer.SetData(_seeableStaging.AsArray());
             }
 
             // Upload islands
-            if (buffersRef.Islands != null && _islandStaging.Length > 0)
+            if (runtime.IslandsBuffer != null && _islandStaging.Length > 0)
             {
-                buffersRef.Islands.SetData(_islandStaging.AsArray());
+                runtime.IslandsBuffer.SetData(_islandStaging.AsArray());
             }
 
-            // Update counts for shaders
-            buffersRef.SeeableCount = _seeableStaging.Length;
-            buffersRef.GroupCount = GPUConstants.MAX_GROUPS;
-            buffersRef.IslandCount = _islandStaging.Length;
+            // Update counts
+            runtime.SeeableCount = _seeableStaging.Length;
+            runtime.IslandCount = _islandStaging.Length;
         }
     }
 }

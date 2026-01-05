@@ -1,10 +1,10 @@
 using Unity.Entities;
 using Unity.Collections;
-using Unity.Burst;
 using Unity.Transforms;
 using UnityEngine;
 using UnityEngine.Rendering;
 using FogOfWar.Visibility.Components;
+using FogOfWar.Visibility.Core;
 using FogOfWar.Visibility.GPU;
 
 namespace FogOfWar.Visibility.Systems
@@ -18,15 +18,8 @@ namespace FogOfWar.Visibility.Systems
 
     /// <summary>
     /// Handles async GPU readback of visibility results.
-    /// [C3 FIX] Uses double-buffered blob assets to eliminate per-frame allocations.
-    ///
-    /// Pattern:
-    /// 1. Request readback of GPU buffers (VisibleCounts, VisibleEntities)
-    /// 2. When readback completes, write to the "pending" blob
-    /// 3. Swap pending and active blobs
-    /// 4. Game systems always read from the active blob
-    ///
-    /// This ensures zero GC allocations during normal operation.
+    /// Uses double-buffered blob assets to eliminate per-frame allocations.
+    /// Gets GPU buffers from VisibilitySystemBehaviour.Instance.Runtime.
     /// </summary>
     [UpdateInGroup(typeof(VisibilitySystemGroup))]
     public partial class VisibilityReadbackSystem : SystemBase
@@ -40,11 +33,11 @@ namespace FogOfWar.Visibility.Systems
         private NativeArray<int> _stagingCounts;
         private NativeArray<VisibilityEntryGPU> _stagingEntries;
         private bool _stagingAllocated;
+        private int _maxVisiblePerGroup;
 
         protected override void OnCreate()
         {
-            // Require the GPU buffers reference to exist
-            RequireForUpdate<VisibilityGPUBuffersRef>();
+            // Don't require any ECS singleton - we get buffers from MonoBehaviour
         }
 
         protected override void OnDestroy()
@@ -67,16 +60,28 @@ namespace FogOfWar.Visibility.Systems
 
         protected override void OnUpdate()
         {
-            // Get managed buffer reference
+            // Get runtime from MonoBehaviour
+            var behaviour = VisibilitySystemBehaviour.Instance;
+            if (behaviour == null || !behaviour.IsReady)
+                return;
+
+            var runtime = behaviour.Runtime;
+            var config = behaviour.Config;
+
+            // Get or create managed buffer reference
             if (!SystemAPI.ManagedAPI.TryGetSingleton<VisibilityReadbackBuffers>(out var buffers))
             {
-                InitializeDoubleBuffers();
+                InitializeDoubleBuffers(config.MaxVisiblePerGroup);
                 return;
             }
 
-            var gpuBuffersRef = SystemAPI.ManagedAPI.GetSingleton<VisibilityGPUBuffersRef>();
-            if (gpuBuffersRef.VisibleCounts == null || gpuBuffersRef.VisibleEntities == null)
-                return;
+            // Check if config changed
+            if (_maxVisiblePerGroup != config.MaxVisiblePerGroup)
+            {
+                // Reinitialize with new size
+                _stagingAllocated = false;
+                _maxVisiblePerGroup = config.MaxVisiblePerGroup;
+            }
 
             // Ensure staging arrays are allocated
             EnsureStagingAllocated(buffers);
@@ -108,18 +113,20 @@ namespace FogOfWar.Visibility.Systems
             // Request new readback if none pending
             if (!_requestsPending)
             {
-                _countsRequest = AsyncGPUReadback.Request(gpuBuffersRef.VisibleCounts);
-                _entriesRequest = AsyncGPUReadback.Request(gpuBuffersRef.VisibleEntities);
+                _countsRequest = AsyncGPUReadback.Request(runtime.VisibleCountsBuffer);
+                _entriesRequest = AsyncGPUReadback.Request(runtime.VisibleEntitiesBuffer);
                 _requestsPending = true;
                 _pendingFrameNumber = UnityEngine.Time.frameCount;
             }
         }
 
-        private void InitializeDoubleBuffers()
+        private void InitializeDoubleBuffers(int maxVisiblePerGroup)
         {
+            _maxVisiblePerGroup = maxVisiblePerGroup;
+
             // Create the managed singleton for double-buffering
             var buffers = new VisibilityReadbackBuffers();
-            buffers.Initialize(1024); // 1024 visible per group
+            buffers.Initialize(maxVisiblePerGroup);
 
             // Create entity for the managed component
             var entity = EntityManager.CreateEntity();
@@ -156,7 +163,7 @@ namespace FogOfWar.Visibility.Systems
         }
 
         /// <summary>
-        /// [C3 FIX] Core double-buffering logic.
+        /// Core double-buffering logic.
         /// Writes readback data to the pending blob, then swaps active/pending.
         /// </summary>
         private void WriteAndSwapBlobs(VisibilityReadbackBuffers buffers, int frameNumber)
@@ -165,13 +172,7 @@ namespace FogOfWar.Visibility.Systems
             var state = SystemAPI.GetSingleton<VisibilityReadbackState>();
             int pendingIndex = 1 - state.ActiveIndex;
 
-            // Get the pending blob and write to it
-            // Since BlobArray is read-only after creation, we need to recreate
-            // However, for C3 optimization, we'll use a hybrid approach:
-            // Keep the blob structure but update via unsafe pointer access
-
-            // For now, rebuild the pending blob (this is still better than
-            // allocating every frame because we reuse the slot)
+            // Rebuild the pending blob
             if (buffers.Blobs[pendingIndex].IsCreated)
                 buffers.Blobs[pendingIndex].Dispose();
 
@@ -220,76 +221,44 @@ namespace FogOfWar.Visibility.Systems
     }
 
     /// <summary>
-    /// Managed component holding references to GPU compute buffers.
-    /// Set by the compute dispatch system, populated by data collection system.
+    /// Double-buffer container for visibility readback results.
     /// </summary>
-    public class VisibilityGPUBuffersRef : IComponentData
+    public class VisibilityReadbackBuffers : IComponentData
     {
-        // ===== Input Buffers (set by DataCollectionSystem) =====
+        public BlobAssetReference<VisibilityResultsBlob>[] Blobs { get; private set; }
+        public int MaxVisiblePerGroup { get; private set; }
+        public int TotalCapacity => GPUConstants.MAX_GROUPS * MaxVisiblePerGroup;
 
-        /// <summary>GPU buffer: per-group metadata. Size: MAX_GROUPS.</summary>
-        public ComputeBuffer GroupData;
+        public void Initialize(int maxVisiblePerGroup)
+        {
+            MaxVisiblePerGroup = maxVisiblePerGroup;
+            Blobs = new BlobAssetReference<VisibilityResultsBlob>[2];
 
-        /// <summary>GPU buffer: unit vision contributions. Variable size.</summary>
-        public ComputeBuffer UnitContributions;
+            // Create initial empty blobs
+            for (int i = 0; i < 2; i++)
+            {
+                using var builder = new BlobBuilder(Allocator.Temp);
+                ref var root = ref builder.ConstructRoot<VisibilityResultsBlob>();
+                builder.Allocate(ref root.GroupOffsets, GPUConstants.MAX_GROUPS);
+                builder.Allocate(ref root.GroupCounts, GPUConstants.MAX_GROUPS);
+                builder.Allocate(ref root.Entries, TotalCapacity);
+                Blobs[i] = builder.CreateBlobAssetReference<VisibilityResultsBlob>(Allocator.Persistent);
+            }
+        }
 
-        /// <summary>GPU buffer: seeable entity data. Variable size.</summary>
-        public ComputeBuffer SeeableEntities;
-
-        /// <summary>GPU buffer: environment islands. Size: MAX_ISLANDS.</summary>
-        public ComputeBuffer Islands;
-
-        /// <summary>GPU buffer: per-group island masks. Size: MAX_GROUPS.</summary>
-        public ComputeBuffer GroupIslandMasks;
-
-        // ===== Output Buffers (read by ReadbackSystem) =====
-
-        /// <summary>GPU buffer: per-group visible entity counts. Size: MAX_GROUPS.</summary>
-        public ComputeBuffer VisibleCounts;
-
-        /// <summary>GPU buffer: flat array of visibility entries.</summary>
-        public ComputeBuffer VisibleEntities;
-
-        /// <summary>GPU buffer: per-group start offsets into VisibleEntities.</summary>
-        public ComputeBuffer VisibleOffsets;
-
-        // ===== Intermediate Buffers =====
-
-        /// <summary>GPU buffer: visibility candidates for ray march.</summary>
-        public ComputeBuffer Candidates;
-
-        /// <summary>GPU buffer: candidate count (single int).</summary>
-        public ComputeBuffer CandidateCount;
-
-        /// <summary>GPU buffer: indirect dispatch arguments.</summary>
-        public ComputeBuffer IndirectArgs;
-
-        // ===== Textures =====
-
-        /// <summary>The 3D fog volume texture for player rendering.</summary>
-        public RenderTexture FogVolume;
-
-        /// <summary>World bounds of the fog volume.</summary>
-        public Bounds VolumeBounds;
-
-        // ===== Counts (for shader uniforms) =====
-
-        /// <summary>Number of seeable entities this frame.</summary>
-        public int SeeableCount;
-
-        /// <summary>Number of active groups.</summary>
-        public int GroupCount;
-
-        /// <summary>Number of loaded islands.</summary>
-        public int IslandCount;
-
-        /// <summary>Player group ID for fog volume.</summary>
-        public int PlayerGroupId;
-
-        /// <summary>Max candidates buffer can hold.</summary>
-        public int MaxCandidates;
-
-        /// <summary>Max visible per group.</summary>
-        public int MaxVisiblePerGroup;
+        public void Dispose()
+        {
+            if (Blobs != null)
+            {
+                for (int i = 0; i < Blobs.Length; i++)
+                {
+                    if (Blobs[i].IsCreated)
+                    {
+                        Blobs[i].Dispose();
+                        Blobs[i] = default;
+                    }
+                }
+            }
+        }
     }
 }

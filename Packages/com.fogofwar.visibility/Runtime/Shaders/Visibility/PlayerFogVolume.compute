@@ -1,6 +1,7 @@
 // PlayerFogVolume.compute
 // Stage 1: Generate player fog-of-war volume from unit SDFs
 // [M3 FIX] Uses 4x4x4 thread groups (64 threads) for cross-platform compatibility
+// [M4 FIX] Added island shadow pass for proper occlusion visualization
 
 #pragma kernel GeneratePlayerFogVolume
 #pragma kernel ClearPlayerFogVolume
@@ -8,6 +9,7 @@
 #include "Common.hlsl"
 #include "SDFEvaluation.hlsl"
 #include "IslandSampling.hlsl"
+
 
 // Thread group configuration uses constants from Common.hlsl:
 // THREAD_GROUP_3D_X/Y/Z = 4x4x4 = 64 threads (M3 fix)
@@ -21,6 +23,11 @@ groupshared UnitSDFContribution g_SharedUnits[SHARED_UNIT_BATCH_SIZE];
 
 StructuredBuffer<VisionGroupData> _GroupData;
 StructuredBuffer<UnitSDFContribution> _UnitContributions;
+
+// Island occlusion is provided via IslandSampling.hlsl:
+// - _Islands (StructuredBuffer<EnvironmentIsland>)
+// - _IslandCount, _IslandValidityMask
+// - _IslandSDF0-7 (Texture3D)
 
 // Output 3D texture (typically 128x128x128)
 RWTexture3D<float> _FogVolumeOutput;
@@ -43,6 +50,7 @@ float3 VoxelToWorld(uint3 voxelCoord)
 
 // =============================================================================
 // MAIN KERNEL: Generate fog volume
+// [FIX] All threads must reach GroupMemoryBarrierWithGroupSync - no early returns!
 // =============================================================================
 
 [numthreads(THREAD_GROUP_3D_X, THREAD_GROUP_3D_Y, THREAD_GROUP_3D_Z)]
@@ -51,29 +59,25 @@ void GeneratePlayerFogVolume(
     uint3 groupThreadId : SV_GroupThreadID,
     uint groupIndex : SV_GroupIndex)
 {
-    // Bounds check
-    if (any(id >= (uint3)_VolumeResolution))
-        return;
+    // Check if this thread is in bounds (but don't return early!)
+    bool inBounds = all(id < (uint3)_VolumeResolution);
 
-    float3 worldPos = VoxelToWorld(id);
+    // Calculate world position (safe even for out-of-bounds threads)
+    float3 worldPos = VoxelToWorld(min(id, (uint3)_VolumeResolution - 1));
 
-    // Get player group data
+    // Get player group data (uniform access - same for all threads)
     VisionGroupData playerGroup = _GroupData[_PlayerGroupId];
 
-    // Quick bounds check against player group
+    // Check if in range (but don't early return!)
     float distToGroup = length(worldPos - playerGroup.groupCenter);
-    if (distToGroup > playerGroup.maxViewDistance + playerGroup.groupBoundingRadius)
-    {
-        _FogVolumeOutput[id] = 0.0;
-        return;
-    }
+    bool inRange = distToGroup <= playerGroup.maxViewDistance + playerGroup.groupBoundingRadius;
 
     // Evaluate combined SDF using shared memory batching
     float bestSDF = 1e10;
     uint totalUnits = (uint)playerGroup.unitCount;
     uint unitStart = (uint)playerGroup.unitStartIndex;
 
-    // Process units in batches
+    // Process units in batches - ALL threads participate in sync
     for (uint batchStart = 0; batchStart < totalUnits; batchStart += SHARED_UNIT_BATCH_SIZE)
     {
         uint batchSize = min(SHARED_UNIT_BATCH_SIZE, totalUnits - batchStart);
@@ -90,32 +94,88 @@ void GeneratePlayerFogVolume(
             }
         }
 
+        // ALL threads must reach this barrier
         GroupMemoryBarrierWithGroupSync();
 
-        // Evaluate this batch
-        for (uint j = 0; j < batchSize; j++)
+        // Only evaluate if this thread should process
+        if (inBounds && inRange)
         {
-            UnitSDFContribution unit = g_SharedUnits[j];
+            for (uint j = 0; j < batchSize; j++)
+            {
+                UnitSDFContribution unit = g_SharedUnits[j];
 
-            // Quick distance cull
-            float dist = length(worldPos - unit.position);
-            if (dist > playerGroup.maxViewDistance + unit.primaryRadius)
-                continue;
-
-            float sdf = EvaluateUnitVision(worldPos, unit);
-            bestSDF = min(bestSDF, sdf);
+                // Quick distance cull
+                float dist = length(worldPos - unit.position);
+                if (dist <= playerGroup.maxViewDistance + unit.primaryRadius)
+                {
+                    float sdf = EvaluateUnitVision(worldPos, unit);
+                    bestSDF = min(bestSDF, sdf);
+                }
+            }
         }
 
+        // ALL threads must reach this barrier before next batch
         GroupMemoryBarrierWithGroupSync();
     }
 
-    // Convert SDF to visibility (0-1)
-    // Negative SDF = inside vision volume = visible
-    float visibility = saturate(-bestSDF * 0.5 + 0.5);
+    // Write output only for valid threads
+    if (inBounds)
+    {
+        if (inRange && bestSDF < 0.0)
+        {
+            // Convert SDF to visibility (0-1)
+            // Negative SDF = inside vision volume = visible
+            float visibility = saturate(-bestSDF * 0.5 + 0.5);
 
-    // TODO: Sample island SDF for occlusion
-    // For now, just output the raw visibility
-    _FogVolumeOutput[id] = visibility;
+            // [M4 FIX] Check for island occlusion (shadows)
+            // Sample all valid islands at this position - if inside any island, reduce visibility
+            float islandSDF = SampleEnvironmentSDF(worldPos, _IslandValidityMask);
+
+            if (islandSDF < 0.0)
+            {
+                // Inside an island = blocked
+                // Use smooth falloff at island edges for nice visualization
+                float blockage = saturate(-islandSDF * 2.0);
+                visibility *= (1.0 - blockage);
+            }
+            else if (visibility > 0.1 && _IslandValidityMask != 0)
+            {
+                // [M4 FIX] Ray march to nearest contributing unit to check for shadows
+                // Find the closest unit that contributed to this voxel's visibility
+                float3 bestUnitPos = playerGroup.groupCenter; // Fallback to group center
+                float bestUnitDist = 1e10;
+
+                // Quick scan to find nearest unit (use shared memory from last batch)
+                for (uint k = 0; k < min(totalUnits, SHARED_UNIT_BATCH_SIZE); k++)
+                {
+                    float d = length(worldPos - g_SharedUnits[k].position);
+                    if (d < bestUnitDist)
+                    {
+                        bestUnitDist = d;
+                        bestUnitPos = g_SharedUnits[k].position;
+                    }
+                }
+
+                // Ray march from voxel toward nearest unit - check if island blocks
+                uint rayMask = ComputeRayIslandMask(worldPos, bestUnitPos);
+                if (rayMask != 0)
+                {
+                    bool pathClear = RayMarchThroughIslands(worldPos, bestUnitPos, rayMask, 0.1);
+                    if (!pathClear)
+                    {
+                        // Shadow: reduce visibility for blocked voxels
+                        visibility *= 0.1; // Keep slight visibility for debug, or use 0.0 for full shadow
+                    }
+                }
+            }
+
+            _FogVolumeOutput[id] = visibility;
+        }
+        else
+        {
+            _FogVolumeOutput[id] = 0.0;
+        }
+    }
 }
 
 // =============================================================================
@@ -125,8 +185,8 @@ void GeneratePlayerFogVolume(
 [numthreads(THREAD_GROUP_3D_X, THREAD_GROUP_3D_Y, THREAD_GROUP_3D_Z)]
 void ClearPlayerFogVolume(uint3 id : SV_DispatchThreadID)
 {
-    if (any(id >= (uint3)_VolumeResolution))
-        return;
-
-    _FogVolumeOutput[id] = 0.0;
+    if (all(id < (uint3)_VolumeResolution))
+    {
+        _FogVolumeOutput[id] = 0.0;
+    }
 }

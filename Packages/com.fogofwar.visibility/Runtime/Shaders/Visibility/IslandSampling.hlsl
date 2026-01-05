@@ -20,7 +20,9 @@ Texture3D<float> _IslandSDF5;
 Texture3D<float> _IslandSDF6;
 Texture3D<float> _IslandSDF7;
 
-SamplerState sampler_IslandSDF;
+// Sampler for island SDF textures (trilinear filtering, clamp addressing)
+// Unity will auto-bind this when using sampler_<TextureName> convention
+SamplerState sampler_IslandSDF0;
 
 StructuredBuffer<EnvironmentIsland> _Islands;
 uint _IslandCount;
@@ -37,14 +39,14 @@ float SampleIslandTexture(int islandIndex, float3 uvw)
 {
     switch (islandIndex)
     {
-        case 0: return _IslandSDF0.SampleLevel(sampler_IslandSDF, uvw, 0);
-        case 1: return _IslandSDF1.SampleLevel(sampler_IslandSDF, uvw, 0);
-        case 2: return _IslandSDF2.SampleLevel(sampler_IslandSDF, uvw, 0);
-        case 3: return _IslandSDF3.SampleLevel(sampler_IslandSDF, uvw, 0);
-        case 4: return _IslandSDF4.SampleLevel(sampler_IslandSDF, uvw, 0);
-        case 5: return _IslandSDF5.SampleLevel(sampler_IslandSDF, uvw, 0);
-        case 6: return _IslandSDF6.SampleLevel(sampler_IslandSDF, uvw, 0);
-        case 7: return _IslandSDF7.SampleLevel(sampler_IslandSDF, uvw, 0);
+        case 0: return _IslandSDF0.SampleLevel(sampler_IslandSDF0, uvw, 0);
+        case 1: return _IslandSDF1.SampleLevel(sampler_IslandSDF0, uvw, 0);
+        case 2: return _IslandSDF2.SampleLevel(sampler_IslandSDF0, uvw, 0);
+        case 3: return _IslandSDF3.SampleLevel(sampler_IslandSDF0, uvw, 0);
+        case 4: return _IslandSDF4.SampleLevel(sampler_IslandSDF0, uvw, 0);
+        case 5: return _IslandSDF5.SampleLevel(sampler_IslandSDF0, uvw, 0);
+        case 6: return _IslandSDF6.SampleLevel(sampler_IslandSDF0, uvw, 0);
+        case 7: return _IslandSDF7.SampleLevel(sampler_IslandSDF0, uvw, 0);
         default: return 1.0;
     }
 }
@@ -54,7 +56,7 @@ float SampleIslandTexture(int islandIndex, float3 uvw)
 // =============================================================================
 
 // Sample a specific island's SDF at world position
-// Transforms world→local, checks local bounds, samples local-space SDF
+// Transforms world->local, checks local bounds, samples local-space SDF
 // Returns large positive if outside or invalid
 float SampleIslandSDF(int islandIndex, float3 worldPos)
 {
@@ -75,8 +77,8 @@ float SampleIslandSDF(int islandIndex, float3 worldPos)
     if (!IsInsideLocalBox(localPos, island.localHalfExtents))
         return 1.0; // Outside = no occlusion
 
-    // Convert local position to UVW (local box maps to [0,1]³)
-    // localPos in [-halfExtents, +halfExtents] → uvw in [0, 1]
+    // Convert local position to UVW (local box maps to [0,1]^3)
+    // localPos in [-halfExtents, +halfExtents] -> uvw in [0, 1]
     float3 uvw = (localPos / island.localHalfExtents) * 0.5 + 0.5;
 
     // Clamp UVW to valid range (safety)
@@ -135,6 +137,9 @@ float SampleEnvironmentSDF(float3 worldPos, uint islandMask)
 
 // Ray march from origin to target, checking for occlusion
 // Returns true if path is clear
+// Optimizations:
+// - Early exit on exponential step growth (clearly in open space)
+// - Early hit on step size below threshold
 bool RayMarchThroughIslands(
     float3 origin,
     float3 target,
@@ -151,7 +156,13 @@ bool RayMarchThroughIslands(
     float3 dir = normalize(target - origin);
     float maxDist = length(target - origin) - targetRadius;
 
+    // Early out for very short rays (target is very close)
+    if (maxDist < 0.5)
+        return true;
+
     float t = 0.5; // Start slightly away from origin
+    float prevStepSize = 0.0;
+    int largeStepCount = 0;
 
     for (int step = 0; step < MAX_RAY_STEPS && t < maxDist; step++)
     {
@@ -160,15 +171,35 @@ bool RayMarchThroughIslands(
         // Sample environment SDF at this point
         float envDist = SampleEnvironmentSDF(p, relevantIslandMask);
 
-        // Hit obstacle
+        // Hit obstacle - early termination
         if (envDist < OCCLUSION_THRESHOLD)
             return false;
 
-        // Sphere trace step
-        t += max(envDist * 0.8, 0.2);
+        // Calculate step size
+        float stepSize = max(envDist * 0.8, 0.2);
+
+        // Early exit: exponential growth detection
+        // If we've taken 3+ consecutive large steps (>5m), we're in open space
+        if (stepSize > 5.0)
+        {
+            largeStepCount++;
+            if (largeStepCount >= 3)
+                return true; // Clearly in open space, path is clear
+        }
+        else
+        {
+            largeStepCount = 0;
+        }
+
+        // Early exit: if single step covers remaining distance
+        if (t + stepSize >= maxDist)
+            return true;
+
+        t += stepSize;
+        prevStepSize = stepSize;
     }
 
-    return true; // Reached target
+    return true; // Reached target (or step limit)
 }
 
 // Ray-OBB intersection test (oriented bounding box)
@@ -183,8 +214,12 @@ bool RayIntersectsIsland(float3 rayOrigin, float3 rayDir, float rayLength, Envir
     float3 localOrigin = WorldToIslandLocal(rayOrigin, island);
     float3 localDir = QuatRotate(island.rotationInverse, rayDir);
 
-    // Avoid division by zero
-    float3 invDir = 1.0 / (abs(localDir) > 0.0001 ? localDir : sign(localDir) * 0.0001);
+    // Avoid division by zero - sign(0) returns 0, so use explicit epsilon
+    float3 safeDir;
+    safeDir.x = abs(localDir.x) > 0.0001 ? localDir.x : 0.0001;
+    safeDir.y = abs(localDir.y) > 0.0001 ? localDir.y : 0.0001;
+    safeDir.z = abs(localDir.z) > 0.0001 ? localDir.z : 0.0001;
+    float3 invDir = 1.0 / safeDir;
 
     // Ray-AABB intersection in local space (box centered at origin)
     float3 t1 = (-island.localHalfExtents - localOrigin) * invDir;

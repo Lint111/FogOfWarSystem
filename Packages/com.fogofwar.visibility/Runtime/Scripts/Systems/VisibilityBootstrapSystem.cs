@@ -14,6 +14,17 @@ namespace FogOfWar.Visibility.Systems
     public partial class VisibilityBootstrapSystem : SystemBase
     {
         private bool _initialized;
+        private Entity _registryEntity;
+        private BlobAssetReference<VisionGroupRegistryBlob> _registryBlob;
+
+        protected override void OnDestroy()
+        {
+            // Dispose blob asset to prevent memory leaks
+            if (_registryBlob.IsCreated)
+            {
+                _registryBlob.Dispose();
+            }
+        }
 
         protected override void OnUpdate()
         {
@@ -23,8 +34,18 @@ namespace FogOfWar.Visibility.Systems
                 return;
             }
 
-            CreateVisionGroupRegistry();
-            CreateVisibilitySystemState();
+            UnityEngine.Debug.Log("[VisibilityBootstrap] Creating singletons...");
+
+            try
+            {
+                CreateVisionGroupRegistry();
+                CreateVisibilitySystemState();
+                UnityEngine.Debug.Log("[VisibilityBootstrap] Singletons created successfully");
+            }
+            catch (System.Exception e)
+            {
+                UnityEngine.Debug.LogError($"[VisibilityBootstrap] Failed to create singletons: {e}");
+            }
 
             _initialized = true;
             Enabled = false;
@@ -68,10 +89,10 @@ namespace FogOfWar.Visibility.Systems
                 };
             }
 
-            var blob = builder.CreateBlobAssetReference<VisionGroupRegistryBlob>(Allocator.Persistent);
+            _registryBlob = builder.CreateBlobAssetReference<VisionGroupRegistryBlob>(Allocator.Persistent);
 
-            var entity = EntityManager.CreateEntity();
-            EntityManager.AddComponentData(entity, new VisionGroupRegistry { Blob = blob });
+            _registryEntity = EntityManager.CreateEntity();
+            EntityManager.AddComponentData(_registryEntity, new VisionGroupRegistry { Blob = _registryBlob });
         }
 
         private void CreateVisibilitySystemState()

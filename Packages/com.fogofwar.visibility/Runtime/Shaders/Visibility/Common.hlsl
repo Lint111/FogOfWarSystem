@@ -19,6 +19,14 @@
 #define VISION_SPHERE_CONE 1
 #define VISION_DUAL_SPHERE 2
 
+// Multi-sample visibility constants
+#define VISIBILITY_SAMPLE_COUNT 8
+#define COVERAGE_SEEN_THRESHOLD 0.65
+#define COVERAGE_PARTIAL_THRESHOLD 0.30
+
+// Note: No LOD needed for ray marching - SDF-guided sphere tracing
+// naturally adapts: large SDF = big steps (fast), small SDF = small steps (precise)
+
 // =============================================================================
 // [M3 FIX] THREAD GROUP SIZES
 // =============================================================================
@@ -39,43 +47,42 @@
 // DATA STRUCTURES (must match C# GPUDataStructures.cs)
 // =============================================================================
 
+// Size: 48 bytes - MUST match C# VisionGroupDataGPU
 struct VisionGroupData
 {
-    int unitStartIndex;
-    int unitCount;
-    float3 groupCenter;
-    float groupBoundingRadius;
-    float maxViewDistance;
-    uint groupId;           // byte packed as uint
-    uint visibilityMask;    // byte packed as uint
-    uint flags;             // byte packed as uint
-    uint padding;
-    float4 reserved;
+    int unitStartIndex;         // 0-4
+    int unitCount;              // 4-8
+    float3 groupCenter;         // 8-20
+    float groupBoundingRadius;  // 20-24
+    float maxViewDistance;      // 24-28
+    uint packedIds;             // 28-32: groupId(8) | visibilityMask(8) | flags(8) | padding(8)
+    float4 reserved;            // 32-48
 };
 
+// Unpack helpers for VisionGroupData.packedIds
+uint GetGroupId(VisionGroupData g) { return g.packedIds & 0xFF; }
+uint GetVisibilityMask(VisionGroupData g) { return (g.packedIds >> 8) & 0xFF; }
+uint GetGroupFlags(VisionGroupData g) { return (g.packedIds >> 16) & 0xFF; }
+
+// Size: 48 bytes - MUST match C# UnitSDFContributionGPU
 struct UnitSDFContribution
 {
-    float3 position;
-    float primaryRadius;
-    float3 forwardDirection;
-    float secondaryParam;
-    uint visionType;        // byte packed as uint
-    uint flags;             // byte packed as uint
-    uint ownerGroupId;      // ushort packed as uint
-    uint padding2;
-    float4 padding;
+    float3 position;        // 12
+    float primaryRadius;    // 4 = 16
+    float3 forwardDirection;// 12
+    float secondaryParam;   // 4 = 32
+    uint packedFlags;       // visionType(8) | flags(8) | ownerGroupId(16) = 36
+    float3 padding;         // 12 = 48
 };
 
+// Size: 32 bytes - MUST match C# SeeableEntityDataGPU
 struct SeeableEntityData
 {
-    int entityId;
-    float3 position;
-    float boundingRadius;
-    uint ownerGroupId;      // byte packed as uint
-    uint seeableByMask;     // byte packed as uint
-    uint flags;             // ushort packed as uint
-    uint padding;
-    float4 padding2;
+    int entityId;           // 4
+    float3 position;        // 12 = 16
+    float boundingRadius;   // 4
+    uint packedFlags;       // ownerGroupId(8) | seeableByMask(8) | flags(16) = 24
+    float2 padding;         // 8 = 32
 };
 
 // Environment island with rotation support (96 bytes)
@@ -110,8 +117,20 @@ struct VisibilityEntry
     int entityId;
     int seenByUnitIndex;
     float distance;
-    uint packed;            // visibilityLevel (8) | flags (8) | padding (16)
+    uint packed;            // visibilityLevel (8) | coverage (8) | flags (16)
 };
+
+// Pack visibility entry fields
+uint PackVisibilityEntry(uint visibilityLevel, uint coverage255, uint flags)
+{
+    return visibilityLevel | (coverage255 << 8) | (flags << 16);
+}
+
+// Unpack coverage from visibility entry (0-255 -> 0.0-1.0)
+float UnpackCoverage(uint packed)
+{
+    return ((packed >> 8) & 0xFF) / 255.0;
+}
 
 // Indirect dispatch arguments for DispatchIndirect()
 // Size: 16 bytes (4 uints)
@@ -129,6 +148,8 @@ struct IndirectDispatchArgs
 
 float SmoothMin(float a, float b, float k)
 {
+    // Protect against division by zero when k approaches 0
+    if (k < 0.0001) return min(a, b);
     float h = max(k - abs(a - b), 0.0) / k;
     return min(a, b) - h * h * k * 0.25;
 }
@@ -148,6 +169,62 @@ bool IsInsideLocalBox(float3 localP, float3 halfExtents)
 uint UnpackByte(uint packed, uint byteIndex)
 {
     return (packed >> (byteIndex * 8)) & 0xFF;
+}
+
+// Unpack helpers for UnitSDFContribution.packedFlags
+// packedFlags = visionType(8) | flags(8) | ownerGroupId(16)
+uint GetUnitVisionType(UnitSDFContribution unit)
+{
+    return unit.packedFlags & 0xFF;
+}
+
+uint GetUnitFlags(UnitSDFContribution unit)
+{
+    return (unit.packedFlags >> 8) & 0xFF;
+}
+
+uint GetUnitOwnerGroupId(UnitSDFContribution unit)
+{
+    return (unit.packedFlags >> 16) & 0xFFFF;
+}
+
+// Unpack helpers for SeeableEntityData.packedFlags
+// packedFlags = ownerGroupId(8) | seeableByMask(8) | flags(16)
+uint GetSeeableOwnerGroupId(SeeableEntityData seeable)
+{
+    return seeable.packedFlags & 0xFF;
+}
+
+uint GetSeeableMask(SeeableEntityData seeable)
+{
+    return (seeable.packedFlags >> 8) & 0xFF;
+}
+
+uint GetSeeableFlags(SeeableEntityData seeable)
+{
+    return (seeable.packedFlags >> 16) & 0xFFFF;
+}
+
+// =============================================================================
+// VISIBILITY MASK UTILITIES
+// =============================================================================
+
+// Check if any viewer group can potentially see this seeable
+// Uses XOR/AND to quickly reject impossible visibility pairs
+// activeGroupMask: bitmask of groups that have active units
+// seeableByMask: which groups the seeable allows to see it
+// Returns: bitmask of groups that COULD see this seeable
+uint ComputePotentialViewers(uint activeGroupMask, uint seeableByMask, uint seeableOwnerGroup)
+{
+    // Groups that are active AND allowed to see this seeable AND not the owner
+    uint ownerBit = 1u << seeableOwnerGroup;
+    return activeGroupMask & seeableByMask & (~ownerBit);
+}
+
+// Quick check if there's ANY potential visibility
+bool HasAnyPotentialViewer(uint activeGroupMask, uint seeableByMask, uint seeableOwnerGroup)
+{
+    return ComputePotentialViewers(activeGroupMask, seeableByMask, seeableOwnerGroup) != 0;
 }
 
 // =============================================================================

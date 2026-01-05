@@ -53,7 +53,7 @@ float EvaluateUnitVision(float3 targetPos, UnitSDFContribution unit)
     // Primary sphere (always present)
     float sdf = dist - unit.primaryRadius;
 
-    uint visionType = unit.visionType & 0xFF;
+    uint visionType = GetUnitVisionType(unit);
 
     // Early out for pure sphere
     if (visionType == VISION_SPHERE)

@@ -1,12 +1,12 @@
 using UnityEngine;
-using Unity.Entities;
+using FogOfWar.Visibility.Core;
 
 namespace FogOfWar.Visibility.Debugging
 {
     /// <summary>
     /// Debug visualizer for the 3D fog volume.
-    /// Displays a slice of the fog volume with visibility coloring.
-    /// Press F1 to toggle, PageUp/PageDown to change slice height.
+    /// Uses a child MeshRenderer for URP compatibility.
+    /// Gets fog texture from VisibilitySystemBehaviour.Instance.Runtime.
     /// </summary>
     [ExecuteAlways]
     public class FogVolumeVisualizer : MonoBehaviour
@@ -14,9 +14,6 @@ namespace FogOfWar.Visibility.Debugging
         [Header("Display Settings")]
         [Tooltip("Material for rendering the fog slice")]
         public Material VisualizationMaterial;
-
-        [Tooltip("Size of the debug quad in world units")]
-        public float QuadSize = 50f;
 
         [Tooltip("Height of the slice in world space")]
         public float SliceHeight = 0f;
@@ -28,142 +25,164 @@ namespace FogOfWar.Visibility.Debugging
         public Color VisibleColor = new Color(0.2f, 0.8f, 0.2f, 0.4f);
         public Color HiddenColor = new Color(0.3f, 0.3f, 0.3f, 0.4f);
 
+        [Header("Debug")]
+        [Tooltip("Log status info every second")]
+        public bool LogDebugInfo = false;
+
         private RenderTexture _fogVolume;
+        private float _lastLogTime;
         private Bounds _volumeBounds;
-        private Mesh _quadMesh;
-        private MaterialPropertyBlock _propertyBlock;
         private bool _hasValidData;
+
+        // Child object with MeshRenderer for URP-compatible rendering
+        private GameObject _sliceQuad;
+        private MeshRenderer _meshRenderer;
+        private MeshFilter _meshFilter;
+        private MaterialPropertyBlock _propertyBlock;
 
         private void OnEnable()
         {
-            CreateQuadMesh();
+            // Clean up any orphaned quads from previous sessions
+            CleanupOrphanedQuads();
+            CreateSliceQuad();
             _propertyBlock = new MaterialPropertyBlock();
         }
 
         private void OnDisable()
         {
-            if (_quadMesh != null)
+            DestroySliceQuad();
+        }
+
+        private void OnDestroy()
+        {
+            DestroySliceQuad();
+        }
+
+        private void CleanupOrphanedQuads()
+        {
+            // Find and destroy any orphaned FogSliceQuad children
+            for (int i = transform.childCount - 1; i >= 0; i--)
             {
-                DestroyImmediate(_quadMesh);
-                _quadMesh = null;
+                var child = transform.GetChild(i);
+                if (child.name == "FogSliceQuad")
+                {
+                    if (Application.isPlaying)
+                        Destroy(child.gameObject);
+                    else
+                        DestroyImmediate(child.gameObject);
+                }
             }
         }
 
         private void Update()
         {
-            // Toggle with F1
-            if (Input.GetKeyDown(KeyCode.F1))
-            {
-                IsVisible = !IsVisible;
-            }
-
-            // Adjust slice height with PageUp/PageDown
-            if (Input.GetKey(KeyCode.PageUp))
-            {
-                SliceHeight += Time.deltaTime * 10f;
-            }
-            if (Input.GetKey(KeyCode.PageDown))
-            {
-                SliceHeight -= Time.deltaTime * 10f;
-            }
-
-            // Try to get fog volume from ECS
+            // Try to get fog volume from Runtime
             TryGetFogVolume();
+
+            // Update the quad
+            UpdateSliceQuad();
+
+            // Debug logging
+            if (LogDebugInfo && Time.time - _lastLogTime > 1f)
+            {
+                _lastLogTime = Time.time;
+            }
         }
 
         private void TryGetFogVolume()
         {
-            if (World.DefaultGameObjectInjectionWorld == null)
-            {
-                _hasValidData = false;
+            _hasValidData = false;
+            _fogVolume = null;
+
+            var behaviour = VisibilitySystemBehaviour.Instance;
+            if (behaviour == null || !behaviour.IsReady)
                 return;
-            }
 
-            var em = World.DefaultGameObjectInjectionWorld.EntityManager;
-
-            // Query for the GPU buffers singleton
-            var query = em.CreateEntityQuery(typeof(Systems.VisibilityGPUBuffersRef));
-            if (query.IsEmpty)
+            var runtime = behaviour.Runtime;
+            if (runtime.FogVolumeTexture != null && runtime.FogVolumeTexture.IsCreated())
             {
-                _hasValidData = false;
-                return;
-            }
-
-            var entity = query.GetSingletonEntity();
-            var buffers = em.GetComponentData<Systems.VisibilityGPUBuffersRef>(entity);
-
-            if (buffers?.FogVolume != null)
-            {
-                _fogVolume = buffers.FogVolume;
-                _volumeBounds = buffers.VolumeBounds;
+                _fogVolume = runtime.FogVolumeTexture;
+                _volumeBounds = behaviour.Config.VolumeBounds;
                 _hasValidData = true;
-            }
-            else
-            {
-                _hasValidData = false;
             }
         }
 
-        private void OnRenderObject()
+        private void CreateSliceQuad()
         {
-            if (!IsVisible || !_hasValidData || _fogVolume == null || VisualizationMaterial == null)
+            if (_sliceQuad != null)
                 return;
 
-            // Calculate slice position
+            _sliceQuad = GameObject.CreatePrimitive(PrimitiveType.Quad);
+            _sliceQuad.name = "FogSliceQuad";
+            _sliceQuad.transform.SetParent(transform, false);
+            _sliceQuad.hideFlags = HideFlags.DontSave | HideFlags.NotEditable;
+
+            // Remove collider
+            var collider = _sliceQuad.GetComponent<Collider>();
+            if (collider != null)
+                DestroyImmediate(collider);
+
+            _meshRenderer = _sliceQuad.GetComponent<MeshRenderer>();
+            _meshFilter = _sliceQuad.GetComponent<MeshFilter>();
+
+            // Disable shadows
+            _meshRenderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+            _meshRenderer.receiveShadows = false;
+        }
+
+        private void DestroySliceQuad()
+        {
+            if (_sliceQuad == null) return;
+            if (Application.isPlaying)
+                Destroy(_sliceQuad);
+            else
+                DestroyImmediate(_sliceQuad);
+
+            _sliceQuad = null;
+            _meshRenderer = null;
+            _meshFilter = null;
+        }
+
+        private void UpdateSliceQuad()
+        {
+            if (_sliceQuad == null)
+                return;
+
+            // Toggle visibility
+            bool shouldShow = IsVisible && _hasValidData && _fogVolume != null && VisualizationMaterial != null;
+            if (_sliceQuad.activeSelf != shouldShow)
+                _sliceQuad.SetActive(shouldShow);
+
+            if (!shouldShow)
+                return;
+
+            // Assign material
+            if (_meshRenderer.sharedMaterial != VisualizationMaterial)
+                _meshRenderer.sharedMaterial = VisualizationMaterial;
+
+            // Calculate normalized height for shader
             float normalizedHeight = (_volumeBounds.size.y > 0)
                 ? (SliceHeight - _volumeBounds.min.y) / _volumeBounds.size.y
                 : 0.5f;
             normalizedHeight = Mathf.Clamp01(normalizedHeight);
 
-            // Update material properties
+            // Update material properties via property block
             _propertyBlock.SetTexture("_FogVolume", _fogVolume);
             _propertyBlock.SetFloat("_SliceHeight", normalizedHeight);
             _propertyBlock.SetVector("_VolumeMin", _volumeBounds.min);
             _propertyBlock.SetVector("_VolumeMax", _volumeBounds.max);
             _propertyBlock.SetColor("_VisibleColor", VisibleColor);
             _propertyBlock.SetColor("_HiddenColor", HiddenColor);
+            _meshRenderer.SetPropertyBlock(_propertyBlock);
 
-            // Position quad at slice height
-            var pos = new Vector3(
+            // Position and scale quad
+            _sliceQuad.transform.position = new Vector3(
                 _volumeBounds.center.x,
-                SliceHeight,
+                SliceHeight + 0.02f, // Small offset to avoid z-fighting
                 _volumeBounds.center.z
             );
-
-            var matrix = Matrix4x4.TRS(
-                pos,
-                Quaternion.Euler(90, 0, 0),
-                new Vector3(_volumeBounds.size.x, _volumeBounds.size.z, 1)
-            );
-
-            // Draw
-            VisualizationMaterial.SetPass(0);
-            Graphics.DrawMesh(_quadMesh, matrix, VisualizationMaterial, 0, null, 0, _propertyBlock);
-        }
-
-        private void CreateQuadMesh()
-        {
-            _quadMesh = new Mesh();
-            _quadMesh.name = "FogVisualizerQuad";
-
-            _quadMesh.vertices = new Vector3[]
-            {
-                new Vector3(-0.5f, -0.5f, 0),
-                new Vector3(0.5f, -0.5f, 0),
-                new Vector3(0.5f, 0.5f, 0),
-                new Vector3(-0.5f, 0.5f, 0)
-            };
-
-            _quadMesh.uv = new Vector2[]
-            {
-                new Vector2(0, 0),
-                new Vector2(1, 0),
-                new Vector2(1, 1),
-                new Vector2(0, 1)
-            };
-
-            _quadMesh.triangles = new int[] { 0, 2, 1, 0, 3, 2 };
-            _quadMesh.RecalculateNormals();
+            _sliceQuad.transform.rotation = Quaternion.Euler(90, 0, 0);
+            _sliceQuad.transform.localScale = new Vector3(_volumeBounds.size.x, _volumeBounds.size.z, 1);
         }
 
         private void OnDrawGizmos()

@@ -191,20 +191,20 @@ namespace FogOfWar.Visibility.Tests
             offsets[0] = 0;
             counts[0] = 3;
             var e0 = new VisibilityEntryGPU { entityId = 100, distance = 5.0f };
-            e0.visibilityLevel = 2;
+            e0.VisibilityLevel = 2;
             entries[0] = e0;
             var e1 = new VisibilityEntryGPU { entityId = 101, distance = 10.0f };
-            e1.visibilityLevel = 1;
+            e1.VisibilityLevel = 1;
             entries[1] = e1;
             var e2 = new VisibilityEntryGPU { entityId = 102, distance = 20.0f };
-            e2.visibilityLevel = 0;
+            e2.VisibilityLevel = 0;
             entries[2] = e2;
 
             // Set up group 1 with 1 visible entity
             offsets[1] = 16;
             counts[1] = 1;
             var e3 = new VisibilityEntryGPU { entityId = 200, distance = 8.0f };
-            e3.visibilityLevel = 2;
+            e3.VisibilityLevel = 2;
             entries[16] = e3;
 
             // Other groups empty
@@ -269,7 +269,7 @@ namespace FogOfWar.Visibility.Tests
             Assert.IsTrue(VisibilityQuery.TryGetVisibilityEntry(_queryData, 101, 0, out var entry));
             Assert.AreEqual(101, entry.entityId);
             Assert.AreEqual(10.0f, entry.distance, 0.001f);
-            Assert.AreEqual(1, entry.visibilityLevel);
+            Assert.AreEqual(1, entry.VisibilityLevel);
         }
 
         [Test]

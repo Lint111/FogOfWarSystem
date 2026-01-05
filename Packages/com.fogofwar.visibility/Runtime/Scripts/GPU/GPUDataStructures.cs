@@ -50,35 +50,43 @@ namespace FogOfWar.Visibility.GPU
 
     /// <summary>
     /// Per-unit vision contribution. Each unit that can see adds one entry.
-    /// Size: 48 bytes (aligned from 40)
+    /// Size: 48 bytes - MUST match HLSL UnitSDFContribution
     /// </summary>
     [StructLayout(LayoutKind.Sequential)]
     public struct UnitSDFContributionGPU
     {
-        public float3 position;             // World position
-        public float primaryRadius;         // Main vision sphere radius
-        public float3 forwardDirection;     // Normalized, for directional vision
-        public float secondaryParam;        // Cone angle (radians) or second sphere radius
-        public byte visionType;             // 0=sphere, 1=cone, 2=dual-sphere
-        public byte flags;                  // HasDirectionalVision, IsElevated, etc.
-        public ushort ownerGroupId;         // Redundant but useful for debugging
-        public float4 padding;              // Pad to 48 bytes
+        public float3 position;             // 12 bytes - World position
+        public float primaryRadius;         // 4 bytes = 16 - Main vision sphere radius
+        public float3 forwardDirection;     // 12 bytes - Normalized, for directional vision
+        public float secondaryParam;        // 4 bytes = 32 - Cone angle (radians) or second sphere radius
+        public uint packedFlags;            // 4 bytes = 36 - visionType(8) | flags(8) | ownerGroupId(16)
+        public float3 padding;              // 12 bytes = 48
+
+        /// <summary>Pack fields for GPU upload.</summary>
+        public static uint PackFlags(byte visionType, byte flags, ushort ownerGroupId)
+        {
+            return (uint)visionType | ((uint)flags << 8) | ((uint)ownerGroupId << 16);
+        }
     }
 
     /// <summary>
     /// Entity that can be seen by other groups.
-    /// Size: 32 bytes (aligned from 24)
+    /// Size: 32 bytes - MUST match HLSL SeeableEntityData
     /// </summary>
     [StructLayout(LayoutKind.Sequential)]
     public struct SeeableEntityDataGPU
     {
-        public int entityId;                // Entity.Index for lookup
-        public float3 position;             // World position
-        public float boundingRadius;        // For partial visibility calculation
-        public byte ownerGroupId;           // Which group owns this
-        public byte seeableByMask;          // Which groups are allowed to see this
-        public ushort flags;                // IsUnit, IsStructure, IsCritical, etc.
-        public float4 padding;              // Pad to 32 bytes
+        public int entityId;                // 4 bytes - Entity.Index for lookup
+        public float3 position;             // 12 bytes = 16 - World position
+        public float boundingRadius;        // 4 bytes - For partial visibility calculation
+        public uint packedFlags;            // 4 bytes = 24 - ownerGroupId(8) | seeableByMask(8) | flags(16)
+        public float2 padding;              // 8 bytes = 32
+
+        /// <summary>Pack fields for GPU upload.</summary>
+        public static uint PackFlags(byte ownerGroupId, byte seeableByMask, ushort flags)
+        {
+            return (uint)ownerGroupId | ((uint)seeableByMask << 8) | ((uint)flags << 16);
+        }
     }
 
     /// <summary>
@@ -179,7 +187,7 @@ namespace FogOfWar.Visibility.GPU
     /// <summary>
     /// Final visibility output entry.
     /// Size: 16 bytes
-    /// Layout matches HLSL: uint packed = visibilityLevel (8) | flags (8) | padding (16)
+    /// Layout matches HLSL: uint packed = visibilityLevel (8) | coverage (8) | flags (16)
     /// </summary>
     [StructLayout(LayoutKind.Sequential)]
     public struct VisibilityEntryGPU
@@ -187,20 +195,30 @@ namespace FogOfWar.Visibility.GPU
         public int entityId;                // Who is visible
         public int seenByUnitIndex;         // Which of our units sees this
         public float distance;              // Distance from that unit
-        private uint packed;                // visibilityLevel (8) | flags (8) | padding (16)
+        private uint packed;                // visibilityLevel (8) | coverage (8) | flags (16)
 
-        /// <summary>Visibility level: 0=edge, 1=partial, 2=full.</summary>
-        public byte visibilityLevel
+        /// <summary>Visibility level: 0=edge, 1=partial, 2=full (based on distance).</summary>
+        public byte VisibilityLevel
         {
             get => (byte)(packed & 0xFF);
             set => packed = (packed & 0xFFFFFF00) | value;
         }
 
-        /// <summary>Additional flags.</summary>
-        public byte flags
+        /// <summary>Coverage percentage: 0-255 maps to 0%-100%. Used for smooth visual transitions.</summary>
+        public byte Coverage
         {
             get => (byte)((packed >> 8) & 0xFF);
             set => packed = (packed & 0xFFFF00FF) | ((uint)value << 8);
+        }
+
+        /// <summary>Coverage as normalized float (0.0 - 1.0).</summary>
+        public float CoverageNormalized => Coverage / 255f;
+
+        /// <summary>Additional flags.</summary>
+        public ushort Flags
+        {
+            get => (ushort)((packed >> 16) & 0xFFFF);
+            set => packed = (packed & 0x0000FFFF) | ((uint)value << 16);
         }
 
         /// <summary>Sets the packed field directly (for GPU readback).</summary>
@@ -208,5 +226,26 @@ namespace FogOfWar.Visibility.GPU
 
         /// <summary>Gets the raw packed field.</summary>
         public uint GetPacked() => packed;
+
+        /// <summary>Pack visibility level and coverage into packed field.</summary>
+        public static uint Pack(byte visibilityLevel, byte coverage, ushort flags = 0)
+        {
+            return (uint)visibilityLevel | ((uint)coverage << 8) | ((uint)flags << 16);
+        }
+    }
+
+    /// <summary>
+    /// Constants for visibility coverage thresholds.
+    /// </summary>
+    public static class VisibilityCoverage
+    {
+        /// <summary>Coverage threshold for gameplay "seen" state (65%).</summary>
+        public const float SEEN_THRESHOLD = 0.65f;
+
+        /// <summary>Coverage threshold for partial visibility/silhouette (30%).</summary>
+        public const float PARTIAL_THRESHOLD = 0.30f;
+
+        /// <summary>Number of sample points for multi-sample visibility check.</summary>
+        public const int SAMPLE_COUNT = 8;
     }
 }

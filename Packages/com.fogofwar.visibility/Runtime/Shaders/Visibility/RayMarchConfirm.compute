@@ -3,6 +3,8 @@
 
 #pragma kernel RayMarchConfirmation
 #pragma kernel PrepareRayMarchDispatch
+#pragma kernel RayMarch_PerGroup              // [PARALLEL] Single-group ray march
+#pragma kernel PrepareDispatch_PerGroup       // [PARALLEL] Compute 8 sets of indirect args
 
 #include "Common.hlsl"
 #include "IslandSampling.hlsl"
@@ -15,7 +17,8 @@ StructuredBuffer<VisionGroupData> _GroupData;
 StructuredBuffer<UnitSDFContribution> _UnitContributions;
 StructuredBuffer<SeeableEntityData> _SeeableEntities;
 StructuredBuffer<VisibilityCandidate> _Candidates;
-StructuredBuffer<int> _CandidateCount;
+StructuredBuffer<int> _CandidateCounts;         // [PARALLEL] Per-group candidate counters (8 ints)
+StructuredBuffer<int> _CandidateOffsets;        // [PARALLEL] Per-group candidate buffer offsets
 StructuredBuffer<uint> _GroupIslandMasks;
 
 RWStructuredBuffer<VisibilityEntry> _VisibleEntities;
@@ -27,6 +30,7 @@ RWStructuredBuffer<IndirectDispatchArgs> _IndirectArgs;
 
 uint _SeeableCount;
 uint _MaxVisiblePerGroup;
+uint _TargetGroupId;    // [PARALLEL] Which group to process (for RayMarch_PerGroup kernel)
 
 // =============================================================================
 // HELPER FUNCTIONS
@@ -43,24 +47,126 @@ uint ComputeVisibilityLevel(float distance)
 }
 
 // =============================================================================
+// MULTI-SAMPLE VISIBILITY
+// =============================================================================
+
+// Pre-computed sample points on unit sphere (hemisphere facing viewer + center)
+// Using 8 samples: center + 6 cardinal directions + 1 top
+static const float3 g_SampleOffsets[VISIBILITY_SAMPLE_COUNT] = {
+    float3(0, 0, 0),           // Center (most important)
+    float3(1, 0, 0),           // Right
+    float3(-1, 0, 0),          // Left
+    float3(0, 1, 0),           // Top
+    float3(0, -1, 0),          // Bottom
+    float3(0, 0, 1),           // Front
+    float3(0, 0, -1),          // Back
+    float3(0, 0.707, 0.707)    // Top-front (diagonal)
+};
+
+// Sample weights (center weighted more heavily)
+static const float g_SampleWeights[VISIBILITY_SAMPLE_COUNT] = {
+    2.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0
+};
+
+// Compute visibility coverage using multiple sample points
+// Uses SDF-guided sphere tracing - step size determined by SDF, not fixed count
+// Returns coverage (0.0 - 1.0) and outputs the nearest visible sample index
+float ComputeMultiSampleVisibility(
+    float3 viewerPos,
+    float3 targetCenter,
+    float targetRadius,
+    uint relevantIslandMask,
+    out int nearestVisibleSample)
+{
+    float totalWeight = 0.0;
+    float visibleWeight = 0.0;
+    nearestVisibleSample = -1;
+    float nearestVisibleDist = 1e10;
+
+    // Direction from target to viewer (for hemisphere orientation)
+    float3 toViewer = normalize(viewerPos - targetCenter);
+
+    // Build rotation matrix to orient samples toward viewer
+    float3 up = abs(toViewer.y) < 0.99 ? float3(0, 1, 0) : float3(1, 0, 0);
+    float3 right = normalize(cross(up, toViewer));
+    up = cross(toViewer, right);
+
+    // All 8 samples for consistent coverage calculation
+    // SDF-guided sphere tracing naturally handles distance - no LOD needed
+    for (int i = 0; i < VISIBILITY_SAMPLE_COUNT; i++)
+    {
+        // Transform sample offset to world-oriented position
+        float3 localOffset = g_SampleOffsets[i];
+        float3 worldOffset = right * localOffset.x + up * localOffset.y + toViewer * localOffset.z;
+        float3 samplePos = targetCenter + worldOffset * targetRadius;
+
+        float weight = g_SampleWeights[i];
+        totalWeight += weight;
+
+        // Ray march using SDF-guided sphere tracing
+        // Step size = SDF value, so open space = fast, near geometry = precise
+        bool isVisible = RayMarchThroughIslands(
+            viewerPos,
+            samplePos,
+            relevantIslandMask,
+            0.1); // Small radius for point sample
+
+        if (isVisible)
+        {
+            visibleWeight += weight;
+
+            // Track nearest visible sample for "seen by" calculation
+            float dist = length(samplePos - viewerPos);
+            if (dist < nearestVisibleDist)
+            {
+                nearestVisibleDist = dist;
+                nearestVisibleSample = i;
+            }
+        }
+    }
+
+    return visibleWeight / totalWeight;
+}
+
+// =============================================================================
 // MAIN KERNEL
 // =============================================================================
 
 [numthreads(64, 1, 1)]
 void RayMarchConfirmation(uint3 id : SV_DispatchThreadID)
 {
-    int candidateCount = _CandidateCount[0];
-    if (id.x >= (uint)candidateCount)
+    // [PARALLEL] Map global dispatch index to per-group candidate
+    // Walk through group regions to find which group owns this index
+    uint globalIdx = id.x;
+    uint runningOffset = 0;
+    int targetGroup = -1;
+    int localIdx = -1;
+
+    for (uint g = 0; g < MAX_GROUPS; g++)
+    {
+        uint groupCount = (uint)max(0, _CandidateCounts[g]);
+        if (globalIdx < runningOffset + groupCount)
+        {
+            targetGroup = (int)g;
+            localIdx = (int)(globalIdx - runningOffset);
+            break;
+        }
+        runningOffset += groupCount;
+    }
+
+    // Invalid index (past all candidates)
+    if (targetGroup < 0)
         return;
 
-    VisibilityCandidate candidate = _Candidates[id.x];
+    // Read candidate from the correct group region
+    int candidateBufferIdx = _CandidateOffsets[targetGroup] + localIdx;
+    VisibilityCandidate candidate = _Candidates[candidateBufferIdx];
 
     // Get viewer unit position
     UnitSDFContribution viewerUnit = _UnitContributions[candidate.nearestUnitIndex];
     float3 viewerPos = viewerUnit.position;
 
     // [C1 FIX] Use seeableIndex directly instead of linear search
-    // OLD: SeeableEntityData target = FindSeeableById(candidate.entityId);
     SeeableEntityData target = _SeeableEntities[candidate.seeableIndex];
 
     // Validate the index points to correct entity (defensive check)
@@ -68,21 +174,25 @@ void RayMarchConfirmation(uint3 id : SV_DispatchThreadID)
         return;
 
     float3 targetPos = target.position;
+    float targetRadius = target.boundingRadius;
 
-    // Compute which islands the ray passes through
+    // Compute which islands the ray might pass through
     uint rayIslandMask = ComputeRayIslandMask(viewerPos, targetPos);
 
     // Also include group's known relevant islands
     rayIslandMask |= _GroupIslandMasks[candidate.viewerGroupId];
 
-    // Ray march to confirm visibility
-    bool isVisible = RayMarchThroughIslands(
+    // Multi-sample visibility check for smooth coverage calculation
+    int nearestVisibleSample;
+    float coverage = ComputeMultiSampleVisibility(
         viewerPos,
         targetPos,
+        targetRadius,
         rayIslandMask,
-        target.boundingRadius);
+        nearestVisibleSample);
 
-    if (isVisible)
+    // Only count as visible if coverage exceeds threshold
+    if (coverage >= COVERAGE_SEEN_THRESHOLD)
     {
         uint groupId = (uint)candidate.viewerGroupId;
         int offset = _VisibleOffsets[groupId];
@@ -100,14 +210,20 @@ void RayMarchConfirmation(uint3 id : SV_DispatchThreadID)
 
         int globalIdx = offset + localIdx;
 
+        // Pack visibility data with coverage for smooth visual transitions
+        uint visLevel = ComputeVisibilityLevel(candidate.distance);
+        uint coverage255 = (uint)(saturate(coverage) * 255.0);
+
         VisibilityEntry entry;
         entry.entityId = candidate.entityId;
         entry.seenByUnitIndex = candidate.nearestUnitIndex;
         entry.distance = candidate.distance;
-        entry.packed = ComputeVisibilityLevel(candidate.distance); // visibilityLevel in low byte
+        entry.packed = PackVisibilityEntry(visLevel, coverage255, 0);
 
         _VisibleEntities[globalIdx] = entry;
     }
+    // For partial coverage (below seen threshold but above partial threshold),
+    // we could emit to a separate buffer for silhouette rendering if needed
 }
 
 // =============================================================================
@@ -115,23 +231,128 @@ void RayMarchConfirmation(uint3 id : SV_DispatchThreadID)
 // =============================================================================
 
 /// <summary>
-/// Prepares indirect dispatch arguments for RayMarchConfirmation.
+/// [PARALLEL] Prepares indirect dispatch arguments for RayMarchConfirmation.
+/// Sums all per-group candidate counts to get total work items.
 /// Run this kernel before DispatchIndirect to set thread group count
 /// based on actual candidate count (avoids CPU readback).
 /// </summary>
 [numthreads(1, 1, 1)]
 void PrepareRayMarchDispatch(uint3 id : SV_DispatchThreadID)
 {
-    uint candidateCount = (uint)max(0, _CandidateCount[0]);
+    // [PARALLEL] Sum all per-group candidate counts
+    uint totalCandidates = 0;
+    for (uint g = 0; g < MAX_GROUPS; g++)
+    {
+        totalCandidates += (uint)max(0, _CandidateCounts[g]);
+    }
 
     // Calculate thread groups needed (ceil divide by thread group size)
-    uint threadGroups = (candidateCount + THREAD_GROUP_1D - 1) / THREAD_GROUP_1D;
+    uint threadGroups = (totalCandidates + THREAD_GROUP_1D - 1) / THREAD_GROUP_1D;
 
     // Ensure at least 1 thread group (required by DispatchIndirect)
     threadGroups = max(1, threadGroups);
 
+    // [PARALLEL] Write to first slot (sequential dispatch for now)
+    // Phase 2 will write per-group indirect args
     _IndirectArgs[0].threadGroupCountX = threadGroups;
     _IndirectArgs[0].threadGroupCountY = 1;
     _IndirectArgs[0].threadGroupCountZ = 1;
     _IndirectArgs[0].padding = 0;
+}
+
+// =============================================================================
+// [PARALLEL] PER-GROUP INDIRECT DISPATCH PREPARATION
+// Computes 8 sets of indirect args, one per group
+// =============================================================================
+
+[numthreads(1, 1, 1)]
+void PrepareDispatch_PerGroup(uint3 id : SV_DispatchThreadID)
+{
+    // Write indirect args for all 8 groups
+    for (uint g = 0; g < MAX_GROUPS; g++)
+    {
+        uint candidateCount = (uint)max(0, _CandidateCounts[g]);
+        uint threadGroups = (candidateCount + THREAD_GROUP_1D - 1) / THREAD_GROUP_1D;
+        threadGroups = max(1, threadGroups);
+
+        _IndirectArgs[g].threadGroupCountX = threadGroups;
+        _IndirectArgs[g].threadGroupCountY = 1;
+        _IndirectArgs[g].threadGroupCountZ = 1;
+        _IndirectArgs[g].padding = 0;
+    }
+}
+
+// =============================================================================
+// [PARALLEL] SINGLE-GROUP RAY MARCH KERNEL
+// Processes only candidates from _TargetGroupId's region
+// Dispatch 8 of these in parallel with DispatchIndirect using per-group args
+// =============================================================================
+
+[numthreads(64, 1, 1)]
+void RayMarch_PerGroup(uint3 id : SV_DispatchThreadID)
+{
+    uint g = _TargetGroupId;
+    uint candidateCount = (uint)max(0, _CandidateCounts[g]);
+
+    if (id.x >= candidateCount)
+        return;
+
+    // Read candidate directly from this group's region
+    int candidateBufferIdx = _CandidateOffsets[g] + (int)id.x;
+    VisibilityCandidate candidate = _Candidates[candidateBufferIdx];
+
+    // Get viewer unit position
+    UnitSDFContribution viewerUnit = _UnitContributions[candidate.nearestUnitIndex];
+    float3 viewerPos = viewerUnit.position;
+
+    // Use seeableIndex directly
+    SeeableEntityData target = _SeeableEntities[candidate.seeableIndex];
+
+    // Validate the index points to correct entity
+    if (target.entityId != candidate.entityId)
+        return;
+
+    float3 targetPos = target.position;
+    float targetRadius = target.boundingRadius;
+
+    // Compute which islands the ray might pass through
+    uint rayIslandMask = ComputeRayIslandMask(viewerPos, targetPos);
+    rayIslandMask |= _GroupIslandMasks[g];
+
+    // Multi-sample visibility check
+    int nearestVisibleSample;
+    float coverage = ComputeMultiSampleVisibility(
+        viewerPos,
+        targetPos,
+        targetRadius,
+        rayIslandMask,
+        nearestVisibleSample);
+
+    // Only count as visible if coverage exceeds threshold
+    if (coverage >= COVERAGE_SEEN_THRESHOLD)
+    {
+        int offset = _VisibleOffsets[g];
+
+        int localIdx;
+        InterlockedAdd(_VisibleCounts[g], 1, localIdx);
+
+        if ((uint)localIdx >= _MaxVisiblePerGroup)
+        {
+            InterlockedAdd(_VisibleCounts[g], -1);
+            return;
+        }
+
+        int globalIdx = offset + localIdx;
+
+        uint visLevel = ComputeVisibilityLevel(candidate.distance);
+        uint coverage255 = (uint)(saturate(coverage) * 255.0);
+
+        VisibilityEntry entry;
+        entry.entityId = candidate.entityId;
+        entry.seenByUnitIndex = candidate.nearestUnitIndex;
+        entry.distance = candidate.distance;
+        entry.packed = PackVisibilityEntry(visLevel, coverage255, 0);
+
+        _VisibleEntities[globalIdx] = entry;
+    }
 }

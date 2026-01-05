@@ -23,9 +23,17 @@ namespace FogOfWar.Visibility.Systems
     [UpdateBefore(typeof(VisibilityReadbackSystem))]
     public partial class VisibilityComputeDispatchSystem : SystemBase
     {
+        // [PERF #42] Pre-allocated arrays to avoid per-frame GC allocations
+        private int[] _zeroCounts;
+        private int[] _zeroCandidates;
+
         protected override void OnCreate()
         {
             RequireForUpdate<VisionGroupRegistry>();
+
+            // [PERF #42] Allocate once at startup
+            _zeroCounts = new int[GPUConstants.MAX_GROUPS];
+            _zeroCandidates = new int[GPUConstants.MAX_GROUPS];
         }
 
         protected override void OnUpdate()
@@ -47,13 +55,9 @@ namespace FogOfWar.Visibility.Systems
             if (config.VisibilityCheckShader == null || config.RayMarchConfirmShader == null)
                 return;
 
-            // Clear counters
-            int[] zeroCounts = new int[GPUConstants.MAX_GROUPS];
-            runtime.VisibleCountsBuffer.SetData(zeroCounts);
-
-            // [PARALLEL] Clear per-group candidate counters
-            int[] zeroCandidates = new int[GPUConstants.MAX_GROUPS];
-            runtime.CandidateCountsBuffer.SetData(zeroCandidates);
+            // [PERF #42] Clear counters using pre-allocated arrays (no per-frame allocation)
+            runtime.VisibleCountsBuffer.SetData(_zeroCounts);
+            runtime.CandidateCountsBuffer.SetData(_zeroCandidates);
 
             // Stage 0: Generate player fog volume
             if (config.PlayerFogVolumeShader != null && runtime.PlayerFogKernel >= 0)

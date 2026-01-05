@@ -21,6 +21,11 @@ namespace FogOfWar.Visibility.Systems
         private bool _initialized;
         private int _lastProcessedFrame;
 
+        // [PERF #43] Pre-allocated containers to avoid per-frame allocations
+        private NativeParallelHashSet<int>[] _currentlyVisibleSets;
+        private NativeList<int>[] _toRemoveLists;
+        private NativeList<int>[] _keyLists;  // Reusable key enumeration
+
         protected override void OnCreate()
         {
             RequireForUpdate<VisibilityQueryData>();
@@ -34,6 +39,14 @@ namespace FogOfWar.Visibility.Systems
                 {
                     if (_previousVisibility[g].IsCreated)
                         _previousVisibility[g].Dispose();
+
+                    // [PERF #43] Dispose pre-allocated containers
+                    if (_currentlyVisibleSets[g].IsCreated)
+                        _currentlyVisibleSets[g].Dispose();
+                    if (_toRemoveLists[g].IsCreated)
+                        _toRemoveLists[g].Dispose();
+                    if (_keyLists[g].IsCreated)
+                        _keyLists[g].Dispose();
                 }
             }
         }
@@ -72,9 +85,18 @@ namespace FogOfWar.Visibility.Systems
         private void Initialize()
         {
             _previousVisibility = new NativeParallelHashMap<int, byte>[GPUConstants.MAX_GROUPS];
+
+            // [PERF #43] Pre-allocate per-group containers
+            _currentlyVisibleSets = new NativeParallelHashSet<int>[GPUConstants.MAX_GROUPS];
+            _toRemoveLists = new NativeList<int>[GPUConstants.MAX_GROUPS];
+            _keyLists = new NativeList<int>[GPUConstants.MAX_GROUPS];
+
             for (int g = 0; g < GPUConstants.MAX_GROUPS; g++)
             {
                 _previousVisibility[g] = new NativeParallelHashMap<int, byte>(256, Allocator.Persistent);
+                _currentlyVisibleSets[g] = new NativeParallelHashSet<int>(256, Allocator.Persistent);
+                _toRemoveLists[g] = new NativeList<int>(64, Allocator.Persistent);
+                _keyLists[g] = new NativeList<int>(256, Allocator.Persistent);
             }
             _initialized = true;
         }
@@ -87,8 +109,9 @@ namespace FogOfWar.Visibility.Systems
 
             var prevMap = _previousVisibility[groupId];
 
-            // Track which entities are currently visible
-            var currentlyVisible = new NativeParallelHashSet<int>(count > 0 ? count : 16, Allocator.Temp);
+            // [PERF #43] Use pre-allocated containers instead of per-frame allocations
+            var currentlyVisible = _currentlyVisibleSets[groupId];
+            currentlyVisible.Clear();
 
             // Check for new visibility entries (entered vision)
             for (int i = 0; i < count; i++)
@@ -115,13 +138,22 @@ namespace FogOfWar.Visibility.Systems
                 }
             }
 
-            // Check for entities that left vision
-            var toRemove = new NativeList<int>(Allocator.Temp);
-            var keys = prevMap.GetKeyArray(Allocator.Temp);
+            // [PERF #43] Use pre-allocated containers for exit detection
+            var toRemove = _toRemoveLists[groupId];
+            toRemove.Clear();
 
-            for (int i = 0; i < keys.Length; i++)
+            var keyList = _keyLists[groupId];
+            keyList.Clear();
+
+            // Copy keys to reusable list (avoids GetKeyArray allocation)
+            foreach (var kvp in prevMap)
             {
-                int entityId = keys[i];
+                keyList.Add(kvp.Key);
+            }
+
+            for (int i = 0; i < keyList.Length; i++)
+            {
+                int entityId = keyList[i];
                 if (!currentlyVisible.Contains(entityId))
                 {
                     // Entity just left vision - fire event
@@ -139,16 +171,11 @@ namespace FogOfWar.Visibility.Systems
                 }
             }
 
-            keys.Dispose();
-
             // Remove exited entities from tracking
             for (int i = 0; i < toRemove.Length; i++)
             {
                 prevMap.Remove(toRemove[i]);
             }
-
-            toRemove.Dispose();
-            currentlyVisible.Dispose();
         }
 
         /// <summary>

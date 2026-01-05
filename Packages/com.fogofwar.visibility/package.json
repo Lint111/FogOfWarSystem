@@ -30,6 +30,11 @@
       "displayName": "Basic Visibility Demo",
       "description": "Simple scene demonstrating multi-group visibility with static obstacles.",
       "path": "Samples~/BasicDemo"
+    },
+    {
+      "displayName": "Stress Test",
+      "description": "Performance test with 4000+ roaming units across multiple vision groups.",
+      "path": "Samples~/StressTest"
     }
   ]
 }

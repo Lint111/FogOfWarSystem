@@ -16,7 +16,7 @@ namespace FogOfWar.Visibility.Debugging
     {
         [Header("Spawn Settings")]
         [Tooltip("Number of units per group")]
-        [Range(1, 500)]
+        [Range(1, 1024)]
         public int UnitsPerGroup = 50;
 
         [Tooltip("Number of groups (max 4 for stress test)")]

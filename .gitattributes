@@ -1,2 +1,40 @@
-# Auto detect text files and perform LF normalization
+# Unity files - normalize to LF on checkin, convert to native line endings on checkout
 * text=auto
+
+# Unity-specific files - always LF
+*.cs text eol=lf
+*.cginc text eol=lf
+*.shader text eol=lf
+*.compute text eol=lf
+*.hlsl text eol=lf
+*.json text eol=lf
+*.asmdef text eol=lf
+*.meta text eol=lf
+*.unity text eol=lf
+*.asset text eol=lf
+*.prefab text eol=lf
+*.mat text eol=lf
+*.md text eol=lf
+
+# Binary files - no conversion
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.psd binary
+*.ai binary
+*.mp3 binary
+*.ogg binary
+*.wav binary
+*.mp4 binary
+*.mov binary
+*.fbx binary
+*.dae binary
+*.3ds binary
+*.obj binary
+*.dll binary
+*.exe binary
+*.so binary
+*.dylib binary
+*.a binary
+*.lib binary

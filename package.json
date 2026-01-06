@@ -4,9 +4,9 @@
   "displayName": "SDF Visibility System",
   "description": "GPU-accelerated fog-of-war and visibility system using Signed Distance Fields. Supports multi-group visibility, SDF-based vision volumes, and multi-island environments.",
   "unity": "6000.0",
-  "documentationUrl": "https://github.com/yourusername/FogOfWarSystem",
-  "changelogUrl": "https://github.com/yourusername/FogOfWarSystem/blob/main/CHANGELOG.md",
-  "licensesUrl": "https://github.com/yourusername/FogOfWarSystem/blob/main/LICENSE.md",
+  "documentationUrl": "https://github.com/Lint111/FogOfWarSystem",
+  "changelogUrl": "https://github.com/Lint111/FogOfWarSystem/blob/main/CHANGELOG.md",
+  "licensesUrl": "https://github.com/Lint111/FogOfWarSystem/blob/main/LICENSE.md",
   "keywords": [
     "fog-of-war",
     "visibility",
@@ -16,9 +16,9 @@
     "dots"
   ],
   "author": {
-    "name": "Your Name",
-    "email": "your.email@example.com",
-    "url": "https://github.com/yourusername"
+    "name": "Lint111",
+    "email": "lint111@users.noreply.github.com",
+    "url": "https://github.com/Lint111"
   },
   "dependencies": {
     "com.unity.entities": "1.0.0",

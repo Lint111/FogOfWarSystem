@@ -143,6 +143,22 @@ Config.meta
 Samples.meta
 Samples/
 
+# =============================================================================
+# Non-code files - ignore Unity-generated .meta files
+# =============================================================================
+# Documentation and markdown (not Unity assets)
+CLAUDE.md.meta
+HANDOFF.md.meta
+LICENSE.meta
+
+# Documentation folder (Obsidian vault, not Unity)
+FogOfWar-Docs.meta
+FogOfWar-Docs/**/*.meta
+
+# Generated/temporary folders
+Logs.meta
+ProfilerCaptures.meta
+
 # Documentation tilde folder is hidden from Unity
 # Documentation~/
 

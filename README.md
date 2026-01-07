@@ -48,6 +48,10 @@ Add to `Packages/manifest.json`:
    - `VisibilityCheck.compute`
    - `RayMarchConfirm.compute`
 3. Set volume bounds to cover your game area
+4. Configure capacity with just 2 parameters:
+   - **NumberOfGroups** (1-8): How many factions/teams
+   - **EntitiesPerGroup** (e.g., 512): Max entities per faction
+   - All other capacities are auto-calculated to ensure sufficient buffers
 
 ### 2. Add System to Scene
 
@@ -159,8 +163,12 @@ Tested performance (RTX 3080):
 ### Optimization Tips
 
 - Enable `UseParallelDispatch` in config for multi-group scenarios
-- Reduce `FogResolution` for larger volumes
-- Limit `MaxCandidatesPerGroup` based on expected density
+- Reduce `FogResolution` for larger volumes (64 for large worlds, 128 for medium, 256 for small precise areas)
+- Adjust `EntitiesPerGroup` based on expected entity counts:
+  - Small games: 256 entities per group
+  - Medium games: 512 entities per group (default)
+  - Large games: 1024 entities per group
+- All buffer capacities are automatically derived to prevent overflow
 
 ## Samples
 
@@ -174,16 +182,27 @@ Import via Package Manager:
 1. Check `VisibilitySystemBehaviour` exists in scene
 2. Verify config has all shaders assigned
 3. Ensure entities are within volume bounds
+4. Check that `NumberOfGroups` includes your entity's group ID
 
 ### Poor performance
 1. Check unit count with `VisibilityPerformanceMonitor`
 2. Reduce `FogResolution` in config
 3. Enable `UseParallelDispatch`
+4. Reduce `EntitiesPerGroup` if you have fewer entities than configured
 
-### Visibility incorrect
+### Visibility incorrect / artifacts
 1. Add `VisibilityDebugOverlay` to visualize
 2. Check island SDF textures are valid
-3. Verify group IDs are correct (0-7)
+3. Verify group IDs are correct (0-7 and within `NumberOfGroups`)
+4. Recent fixes:
+   - Fixed stripe artifacts from shared memory bug
+   - Added passive fog dissipation for smoother transitions
+   - Temporal blending reduces flickering
+
+### Buffer overflow errors
+1. Increase `EntitiesPerGroup` to match your entity count
+2. The system auto-calculates all buffer sizes from this value
+3. Check console for validation warnings from config's `OnValidate()`
 
 ## License
 

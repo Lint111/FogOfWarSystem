@@ -92,6 +92,11 @@ namespace FogOfWar.Visibility.Systems
             shader.SetVector("_VolumeResolution", new Vector4(config.FogResolution, config.FogResolution, config.FogResolution, 0));
             shader.SetInt("_PlayerGroupId", config.PlayerGroupId);
 
+            // Temporal smoothing parameters
+            shader.SetFloat("_VisibilityBlendRate", config.VisibilityBlendRate);
+            shader.SetFloat("_PassiveDissipationRate", config.PassiveDissipationRate);
+            shader.SetFloat("_DeltaTime", UnityEngine.Time.deltaTime);
+
             // Bind island data for shadow calculation
             shader.SetBuffer(kernel, "_Islands", runtime.IslandsBuffer);
             shader.SetInt("_IslandCount", runtime.IslandCount);

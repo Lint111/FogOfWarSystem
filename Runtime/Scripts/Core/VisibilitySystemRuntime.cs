@@ -55,6 +55,12 @@ namespace FogOfWar.Visibility.Core
         // ===== Compute Kernels =====
         public int PlayerFogKernel { get; private set; } = -1;
         public int ClearFogKernel { get; private set; } = -1;
+        /// <summary>
+        /// Optional kernel for standalone fog dissipation.
+        /// Not used by default - main GeneratePlayerFogVolume kernel applies inline dissipation.
+        /// Call DissipatePlayerFog() to run fog decay without full visibility recalculation.
+        /// </summary>
+        public int DissipateKernel { get; private set; } = -1;
         public int VisibilityCheckKernel { get; private set; } = -1;
         public int VisibilityCheckPerGroupKernel { get; private set; } = -1;  // [PARALLEL] Single-group kernel
         public int PrepareDispatchKernel { get; private set; } = -1;
@@ -111,6 +117,7 @@ namespace FogOfWar.Visibility.Core
                 {
                     PlayerFogKernel = Config.PlayerFogVolumeShader.FindKernel("GeneratePlayerFogVolume");
                     ClearFogKernel = Config.PlayerFogVolumeShader.FindKernel("ClearPlayerFogVolume");
+                    DissipateKernel = Config.PlayerFogVolumeShader.FindKernel("DissipatePlayerFogVolume");
                 }
                 catch (Exception e)
                 {
@@ -372,6 +379,28 @@ namespace FogOfWar.Visibility.Core
             {
                 Debug.LogError($"[VisibilitySystemRuntime] Event handler error: {e.Message}");
             }
+        }
+
+        // ===== Optional: Standalone Fog Dissipation =====
+
+        /// <summary>
+        /// Optionally run standalone fog dissipation without full visibility recalculation.
+        /// Use this when you want temporal decay without re-running the full compute pipeline.
+        /// By default, the GeneratePlayerFogVolume kernel applies dissipation inline.
+        /// </summary>
+        public void DissipatePlayerFog(float deltaTime)
+        {
+            if (DissipateKernel < 0 || Config.PlayerFogVolumeShader == null)
+                return;
+
+            var shader = Config.PlayerFogVolumeShader;
+            shader.SetFloat("_PassiveDissipationRate", Config.PassiveDissipationRate);
+            shader.SetFloat("_DeltaTime", deltaTime);
+            shader.SetTexture(DissipateKernel, "_FogVolumeOutput", FogVolumeTexture);
+            shader.SetVector("_VolumeResolution", new Vector4(Config.FogResolution, Config.FogResolution, Config.FogResolution, 0));
+
+            int groups = Config.FogResolution / GPUConstants.THREAD_GROUP_3D_X;
+            shader.Dispatch(DissipateKernel, groups, groups, groups);
         }
 
         // ===== Disposal =====

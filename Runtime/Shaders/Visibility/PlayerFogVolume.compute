@@ -2,9 +2,11 @@
 // Stage 1: Generate player fog-of-war volume from unit SDFs
 // [M3 FIX] Uses 4x4x4 thread groups (64 threads) for cross-platform compatibility
 // [M4 FIX] Added island shadow pass for proper occlusion visualization
+// [ARTIFACT FIX] Added passive dissipation for smoother transitions
 
 #pragma kernel GeneratePlayerFogVolume
 #pragma kernel ClearPlayerFogVolume
+#pragma kernel DissipatePlayerFogVolume
 
 #include "Common.hlsl"
 #include "SDFEvaluation.hlsl"
@@ -37,6 +39,11 @@ float3 _VolumeWorldMin;
 float3 _VolumeWorldMax;
 float3 _VolumeResolution;     // e.g., (128, 128, 128)
 uint _PlayerGroupId;
+
+// Temporal smoothing parameters (set from VisibilitySystemConfig)
+float _VisibilityBlendRate;   // Blend rate between frames (0.1-1.0, typically 0.7)
+float _PassiveDissipationRate; // Passive decay rate (0.8-1.0, typically 0.95)
+float _DeltaTime;             // Frame delta time for frame-rate-independent decay
 
 // =============================================================================
 // HELPER FUNCTIONS
@@ -77,6 +84,10 @@ void GeneratePlayerFogVolume(
     uint totalUnits = (uint)playerGroup.unitCount;
     uint unitStart = (uint)playerGroup.unitStartIndex;
 
+    // [ARTIFACT FIX] Track nearest contributing unit during SDF evaluation
+    float3 bestUnitPos = playerGroup.groupCenter;
+    float bestUnitDist = 1e10;
+
     // Process units in batches - ALL threads participate in sync
     for (uint batchStart = 0; batchStart < totalUnits; batchStart += SHARED_UNIT_BATCH_SIZE)
     {
@@ -110,6 +121,13 @@ void GeneratePlayerFogVolume(
                 {
                     float sdf = EvaluateUnitVision(worldPos, unit);
                     bestSDF = min(bestSDF, sdf);
+
+                    // [ARTIFACT FIX] Track nearest unit that contributes to visibility
+                    if (sdf < 0.0 && dist < bestUnitDist)
+                    {
+                        bestUnitDist = dist;
+                        bestUnitPos = unit.position;
+                    }
                 }
             }
         }
@@ -140,21 +158,8 @@ void GeneratePlayerFogVolume(
             }
             else if (visibility > 0.1 && _IslandValidityMask != 0)
             {
-                // [M4 FIX] Ray march to nearest contributing unit to check for shadows
-                // Find the closest unit that contributed to this voxel's visibility
-                float3 bestUnitPos = playerGroup.groupCenter; // Fallback to group center
-                float bestUnitDist = 1e10;
-
-                // Quick scan to find nearest unit (use shared memory from last batch)
-                for (uint k = 0; k < min(totalUnits, SHARED_UNIT_BATCH_SIZE); k++)
-                {
-                    float d = length(worldPos - g_SharedUnits[k].position);
-                    if (d < bestUnitDist)
-                    {
-                        bestUnitDist = d;
-                        bestUnitPos = g_SharedUnits[k].position;
-                    }
-                }
+                // [ARTIFACT FIX] Ray march to nearest contributing unit to check for shadows
+                // bestUnitPos is already tracked during SDF evaluation above
 
                 // Ray march from voxel toward nearest unit - check if island blocks
                 uint rayMask = ComputeRayIslandMask(worldPos, bestUnitPos);
@@ -169,12 +174,32 @@ void GeneratePlayerFogVolume(
                 }
             }
 
-            _FogVolumeOutput[id] = visibility;
+            // [ARTIFACT FIX] Blend with previous frame for smoother transitions
+            float prevVisibility = _FogVolumeOutput[id];
+            _FogVolumeOutput[id] = lerp(prevVisibility, visibility, _VisibilityBlendRate);
         }
         else
         {
-            _FogVolumeOutput[id] = 0.0;
+            // Not visible this frame - apply passive dissipation
+            float prevVisibility = _FogVolumeOutput[id];
+            _FogVolumeOutput[id] = prevVisibility * _PassiveDissipationRate;
         }
+    }
+}
+
+// =============================================================================
+// DISSIPATE KERNEL: Passive decay for unseen areas
+// =============================================================================
+
+[numthreads(THREAD_GROUP_3D_X, THREAD_GROUP_3D_Y, THREAD_GROUP_3D_Z)]
+void DissipatePlayerFogVolume(uint3 id : SV_DispatchThreadID)
+{
+    if (all(id < (uint3)_VolumeResolution))
+    {
+        float current = _FogVolumeOutput[id];
+        // Frame-rate independent decay: value *= pow(rate, deltaTime * 60)
+        float decay = pow(_PassiveDissipationRate, _DeltaTime * 60.0);
+        _FogVolumeOutput[id] = current * decay;
     }
 }
 

@@ -88,7 +88,14 @@ var visible = VisibilityQuery.GetVisibleToGroup(queryData, groupId);
 |-----------|---------|
 | `UnitVisionAuthoring` | Gives entity vision capability |
 | `SeeableAuthoring` | Marks entity as detectable |
-| `EnvironmentIslandAuthoring` | Defines SDF occlusion volume |
+| `EnvironmentIslandAuthoring` | Defines SDF occlusion volume (runtime) |
+| `IslandSDFContributor` | Marks island for auto-baking (editor) |
+
+### Editor Tools
+
+| Window | Purpose |
+|--------|---------|
+| `SDF Island Manager` | Monitor and bake island SDFs (Window > FogOfWar) |
 
 ### Debug Tools
 
@@ -121,9 +128,40 @@ Islands are disconnected regions with baked SDF volumes for occlusion.
 3. Assign the SDF texture and set texture slot (0-7)
 4. The system supports up to 8 islands
 
-### SDF Baking
+### SDF Baking (Automatic)
 
-Use Unity's **VFX Graph SDF Bake Tool**:
+The system includes **automatic SDF baking** with change detection:
+
+1. Add `IslandSDFContributor` component to your island GameObject (auto-adds `EnvironmentIslandAuthoring`)
+2. The system automatically detects mesh changes and queues rebakes
+3. Open **Window > FogOfWar > SDF Island Manager** to monitor status
+
+#### SDF Island Manager Window
+
+Access via **Window > FogOfWar > SDF Island Manager**:
+
+- **Config Asset** - Drag-drop or search for `SDFBakeConfig` asset
+- **Status Bar** - Shows tracked islands, dirty count, queue status
+- **Island List** - View all islands with bake status
+- **Actions** - Bake All Dirty, Stop Baking, Refresh Islands
+
+#### SDF Bake Config
+
+Create via **Assets > Create > FogOfWar > SDF Bake Config**:
+
+| Setting | Description |
+|---------|-------------|
+| Bake Before Play | Auto-bake dirty islands before entering play mode |
+| Auto-Bake Debounced | Queue bake after changes (with debounce timer) |
+| Debounce Duration | Wait time after last change before auto-bake (30-300s) |
+| Resolution | Default SDF texture resolution (32-256) |
+| Output Path | Folder for baked SDF textures |
+| Bounds Padding | Extra padding around mesh bounds (0-0.5) |
+| Sign Passes | Accuracy vs speed tradeoff (1-4) |
+
+#### Manual Baking (Alternative)
+
+You can also use Unity's **VFX Graph SDF Bake Tool**:
 
 1. **Window > Visual Effects > Utilities > SDF Bake Tool**
 2. Assign your mesh

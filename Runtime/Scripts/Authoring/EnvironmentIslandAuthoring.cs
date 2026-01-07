@@ -14,6 +14,7 @@ namespace FogOfWar.Visibility.Authoring
     /// Automatically registers the SDF texture with the visibility system at runtime.
     /// Creates an ECS entity at runtime for the visibility system to query.
     /// </summary>
+    [RequireComponent(typeof(IslandSDFContributor))]
     public class EnvironmentIslandAuthoring : MonoBehaviour
     {
         [Header("SDF Texture")]
@@ -38,8 +39,18 @@ namespace FogOfWar.Visibility.Authoring
         private Coroutine _registrationCoroutine;
         private Entity _runtimeEntity = Entity.Null;
 
+        // Cached reference to paired contributor component
+        private IslandSDFContributor _cachedContributor;
+
+        private void Awake()
+        {
+            CacheContributor();
+        }
+
         private void OnValidate()
         {
+            CacheContributor();
+
             // Auto-detect half-extents from mesh bounds if available
             if (LocalHalfExtents == Vector3.zero)
             {
@@ -58,8 +69,30 @@ namespace FogOfWar.Visibility.Authoring
 
         private void OnEnable()
         {
+            CacheContributor();
+
             if (!_isRegistered)
                 TryRegister();
+        }
+
+        private void CacheContributor()
+        {
+            if (_cachedContributor == null)
+            {
+                _cachedContributor = GetComponent<IslandSDFContributor>();
+            }
+        }
+
+        /// <summary>
+        /// Gets the paired IslandSDFContributor component.
+        /// </summary>
+        public IslandSDFContributor Contributor
+        {
+            get
+            {
+                CacheContributor();
+                return _cachedContributor;
+            }
         }
 
         private void OnDisable()
@@ -103,8 +136,13 @@ namespace FogOfWar.Visibility.Authoring
 
             if (SDFTexture == null)
             {
-                Debug.LogWarning($"[EnvironmentIslandAuthoring] No SDF texture assigned on {gameObject.name}");
-                return;
+                SDFTexture = _cachedContributor.BakedSDFTexture;
+
+                if (SDFTexture == null)
+                {
+                    Debug.LogWarning($"[EnvironmentIslandAuthoring] No SDF texture assigned on {gameObject.name} or available in {_cachedContributor}");
+                    return;
+                }
             }
 
             var system = VisibilitySystemBehaviour.Instance;

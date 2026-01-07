@@ -18,10 +18,8 @@ MonoBehaviour:
   VolumeMin: {x: -50, y: -10, z: -50}
   VolumeMax: {x: 50, y: 40, z: 50}
   FogResolution: 116
-  MaxUnitsPerGroup: 1024
-  MaxSeeables: 8192
-  MaxCandidatesPerGroup: 16384
-  MaxVisiblePerGroup: 4096
+  NumberOfGroups: 4
+  EntitiesPerGroup: 2048
   PlayerGroupId: 0
   UseParallelDispatch: 1
   DebugVisualizationMaterial: {fileID: 2100000, guid: b1892b6e8e716754699593a57280c91a, type: 2}

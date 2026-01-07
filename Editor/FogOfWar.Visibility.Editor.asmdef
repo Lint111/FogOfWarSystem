@@ -6,7 +6,8 @@
         "Unity.Entities",
         "Unity.Entities.Editor",
         "Unity.Mathematics",
-        "Unity.Collections"
+        "Unity.Collections",
+        "Unity.VisualEffectGraph.Runtime"
     ],
     "includePlatforms": [
         "Editor"

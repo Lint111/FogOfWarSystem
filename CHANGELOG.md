@@ -5,6 +5,31 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.0] - 2026-01-07
+
+### Added
+- **Automatic SDF Island Baking System**
+  - `IslandSDFContributor` component for marking islands for auto-baking
+  - `SDFBakeConfig` ScriptableObject for bake settings
+  - `SDF Island Manager` editor window (Window > FogOfWar > SDF Island Manager)
+  - Automatic change detection with debounced rebaking
+  - Play mode blocking until dirty islands are baked (configurable)
+  - Uses Unity's MeshToSDFBaker (VFX Graph) for GPU-accelerated baking
+- `IslandDirtyTracker` for monitoring hierarchy changes
+- `SDFBakeQueue` for sequential bake processing
+- Local-space SDF baking for proper runtime transform support
+- VFX Graph package dependency for SDF baking API
+
+### Changed
+- `EnvironmentIslandAuthoring` now requires `IslandSDFContributor` (auto-added)
+- Components cache paired references for performance
+- SDF bounds calculation now centered at local origin
+
+### Fixed
+- Fixed shader warning in `PlayerFogVolume.compute` (pow with negative base)
+- Fixed SDF bounds mismatch causing entities to freeze inside islands
+- Fixed buffer overflow with `EntitiesPerGroup` config update
+
 ## [Unreleased]
 
 ### Added

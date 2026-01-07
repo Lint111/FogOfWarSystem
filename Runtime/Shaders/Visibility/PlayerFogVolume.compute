@@ -198,7 +198,7 @@ void DissipatePlayerFogVolume(uint3 id : SV_DispatchThreadID)
     {
         float current = _FogVolumeOutput[id];
         // Frame-rate independent decay: value *= pow(rate, deltaTime * 60)
-        float decay = pow(_PassiveDissipationRate, _DeltaTime * 60.0);
+        float decay = pow(abs(_PassiveDissipationRate), _DeltaTime * 60.0);
         _FogVolumeOutput[id] = current * decay;
     }
 }

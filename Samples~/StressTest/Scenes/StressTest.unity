@@ -296,6 +296,78 @@ MonoBehaviour:
   m_ShadowLayerMask: 1
   m_RenderingLayers: 1
   m_ShadowRenderingLayers: 1
+--- !u!1 &337214535 stripped
+GameObject:
+  m_CorrespondingSourceObject: {fileID: 6704899457925197014, guid: ef190e6b7159ebb4fba559ab30eae95e, type: 3}
+  m_PrefabInstance: {fileID: 1021840380}
+  m_PrefabAsset: {fileID: 0}
+--- !u!114 &337214536
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 337214535}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 20c8bb1e2e41c9743a87d4a91ce50ea3, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: FogOfWar.Visibility::FogOfWar.Visibility.Authoring.IslandSDFContributor
+  _islandId: StressTest_Island_1_-19350
+  _textureSlot: -1
+  _overrideResolution: 0
+  _explicitMeshSources: []
+  _isDirty: 0
+  _lastBakeTime: 2026-01-07 16:28:41
+  _bakedSDFTexture: {fileID: 11700000, guid: b2efd4074ea92f64bbb24dab9a63ff73, type: 2}
+--- !u!1 &345515280 stripped
+GameObject:
+  m_CorrespondingSourceObject: {fileID: 6704899457925197014, guid: ef190e6b7159ebb4fba559ab30eae95e, type: 3}
+  m_PrefabInstance: {fileID: 965327916}
+  m_PrefabAsset: {fileID: 0}
+--- !u!114 &345515281
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 345515280}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 20c8bb1e2e41c9743a87d4a91ce50ea3, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: FogOfWar.Visibility::FogOfWar.Visibility.Authoring.IslandSDFContributor
+  _islandId: StressTest_Island_3_-19342
+  _textureSlot: -1
+  _overrideResolution: 0
+  _explicitMeshSources: []
+  _isDirty: 0
+  _lastBakeTime: 2026-01-07 16:28:41
+  _bakedSDFTexture: {fileID: 11700000, guid: ca6200cedce191440a968bc4cdb69508, type: 2}
+--- !u!1 &697803294 stripped
+GameObject:
+  m_CorrespondingSourceObject: {fileID: 6704899457925197014, guid: ef190e6b7159ebb4fba559ab30eae95e, type: 3}
+  m_PrefabInstance: {fileID: 2010607638}
+  m_PrefabAsset: {fileID: 0}
+--- !u!114 &697803295
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 697803294}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 20c8bb1e2e41c9743a87d4a91ce50ea3, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: FogOfWar.Visibility::FogOfWar.Visibility.Authoring.IslandSDFContributor
+  _islandId: StressTest_Island_2_-19346
+  _textureSlot: -1
+  _overrideResolution: 0
+  _explicitMeshSources: []
+  _isDirty: 0
+  _lastBakeTime: 2026-01-07 16:28:40
+  _bakedSDFTexture: {fileID: 11700000, guid: 27b743dd46929c644868109a9ddbf782, type: 2}
 --- !u!1001 &740918021
 PrefabInstance:
   m_ObjectHideFlags: 0
@@ -309,6 +381,10 @@ PrefabInstance:
       value: Island_4
       objectReference: {fileID: 0}
     - target: {fileID: 8004758713100855835, guid: ef190e6b7159ebb4fba559ab30eae95e, type: 3}
+      propertyPath: SDFTexture
+      value: 
+      objectReference: {fileID: 11700000, guid: b670bd47a26c38c4a9495ee5d08c2a8e, type: 2}
+    - target: {fileID: 8004758713100855835, guid: ef190e6b7159ebb4fba559ab30eae95e, type: 3}
       propertyPath: TextureSlot
       value: 4
       objectReference: {fileID: 0}
@@ -318,7 +394,7 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 8459266994953834700, guid: ef190e6b7159ebb4fba559ab30eae95e, type: 3}
       propertyPath: m_LocalScale.y
-      value: 11.550864
+      value: 17.64741
       objectReference: {fileID: 0}
     - target: {fileID: 8459266994953834700, guid: ef190e6b7159ebb4fba559ab30eae95e, type: 3}
       propertyPath: m_LocalScale.z
@@ -367,8 +443,35 @@ PrefabInstance:
     m_RemovedComponents: []
     m_RemovedGameObjects: []
     m_AddedGameObjects: []
-    m_AddedComponents: []
+    m_AddedComponents:
+    - targetCorrespondingSourceObject: {fileID: 6704899457925197014, guid: ef190e6b7159ebb4fba559ab30eae95e, type: 3}
+      insertIndex: -1
+      addedObject: {fileID: 947447009}
   m_SourcePrefab: {fileID: 100100000, guid: ef190e6b7159ebb4fba559ab30eae95e, type: 3}
+--- !u!1 &947447008 stripped
+GameObject:
+  m_CorrespondingSourceObject: {fileID: 6704899457925197014, guid: ef190e6b7159ebb4fba559ab30eae95e, type: 3}
+  m_PrefabInstance: {fileID: 740918021}
+  m_PrefabAsset: {fileID: 0}
+--- !u!114 &947447009
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 947447008}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 20c8bb1e2e41c9743a87d4a91ce50ea3, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: FogOfWar.Visibility::FogOfWar.Visibility.Authoring.IslandSDFContributor
+  _islandId: StressTest_Island_4_-19354
+  _textureSlot: -1
+  _overrideResolution: 0
+  _explicitMeshSources: []
+  _isDirty: 0
+  _lastBakeTime: 2026-01-07 16:28:41
+  _bakedSDFTexture: {fileID: 11700000, guid: b670bd47a26c38c4a9495ee5d08c2a8e, type: 2}
 --- !u!1001 &965327916
 PrefabInstance:
   m_ObjectHideFlags: 0
@@ -382,8 +485,20 @@ PrefabInstance:
       value: Island_3
       objectReference: {fileID: 0}
     - target: {fileID: 8004758713100855835, guid: ef190e6b7159ebb4fba559ab30eae95e, type: 3}
+      propertyPath: SDFTexture
+      value: 
+      objectReference: {fileID: 11700000, guid: ca6200cedce191440a968bc4cdb69508, type: 2}
+    - target: {fileID: 8004758713100855835, guid: ef190e6b7159ebb4fba559ab30eae95e, type: 3}
       propertyPath: TextureSlot
       value: 3
+      objectReference: {fileID: 0}
+    - target: {fileID: 8004758713100855835, guid: ef190e6b7159ebb4fba559ab30eae95e, type: 3}
+      propertyPath: LocalHalfExtents.x
+      value: 0.5000001
+      objectReference: {fileID: 0}
+    - target: {fileID: 8004758713100855835, guid: ef190e6b7159ebb4fba559ab30eae95e, type: 3}
+      propertyPath: LocalHalfExtents.y
+      value: 0.50000006
       objectReference: {fileID: 0}
     - target: {fileID: 8459266994953834700, guid: ef190e6b7159ebb4fba559ab30eae95e, type: 3}
       propertyPath: m_LocalScale.x
@@ -391,7 +506,7 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 8459266994953834700, guid: ef190e6b7159ebb4fba559ab30eae95e, type: 3}
       propertyPath: m_LocalScale.y
-      value: 12.322947
+      value: 14.377182
       objectReference: {fileID: 0}
     - target: {fileID: 8459266994953834700, guid: ef190e6b7159ebb4fba559ab30eae95e, type: 3}
       propertyPath: m_LocalScale.z
@@ -440,7 +555,10 @@ PrefabInstance:
     m_RemovedComponents: []
     m_RemovedGameObjects: []
     m_AddedGameObjects: []
-    m_AddedComponents: []
+    m_AddedComponents:
+    - targetCorrespondingSourceObject: {fileID: 6704899457925197014, guid: ef190e6b7159ebb4fba559ab30eae95e, type: 3}
+      insertIndex: -1
+      addedObject: {fileID: 345515281}
   m_SourcePrefab: {fileID: 100100000, guid: ef190e6b7159ebb4fba559ab30eae95e, type: 3}
 --- !u!1001 &1021840380
 PrefabInstance:
@@ -455,8 +573,20 @@ PrefabInstance:
       value: Island_1
       objectReference: {fileID: 0}
     - target: {fileID: 8004758713100855835, guid: ef190e6b7159ebb4fba559ab30eae95e, type: 3}
+      propertyPath: SDFTexture
+      value: 
+      objectReference: {fileID: 11700000, guid: b2efd4074ea92f64bbb24dab9a63ff73, type: 2}
+    - target: {fileID: 8004758713100855835, guid: ef190e6b7159ebb4fba559ab30eae95e, type: 3}
       propertyPath: TextureSlot
       value: 1
+      objectReference: {fileID: 0}
+    - target: {fileID: 8004758713100855835, guid: ef190e6b7159ebb4fba559ab30eae95e, type: 3}
+      propertyPath: LocalHalfExtents.x
+      value: 0.50000006
+      objectReference: {fileID: 0}
+    - target: {fileID: 8004758713100855835, guid: ef190e6b7159ebb4fba559ab30eae95e, type: 3}
+      propertyPath: LocalHalfExtents.z
+      value: 0.50000006
       objectReference: {fileID: 0}
     - target: {fileID: 8459266994953834700, guid: ef190e6b7159ebb4fba559ab30eae95e, type: 3}
       propertyPath: m_LocalScale.x
@@ -464,7 +594,7 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 8459266994953834700, guid: ef190e6b7159ebb4fba559ab30eae95e, type: 3}
       propertyPath: m_LocalScale.y
-      value: 11.550864
+      value: 15.229815
       objectReference: {fileID: 0}
     - target: {fileID: 8459266994953834700, guid: ef190e6b7159ebb4fba559ab30eae95e, type: 3}
       propertyPath: m_LocalScale.z
@@ -513,7 +643,10 @@ PrefabInstance:
     m_RemovedComponents: []
     m_RemovedGameObjects: []
     m_AddedGameObjects: []
-    m_AddedComponents: []
+    m_AddedComponents:
+    - targetCorrespondingSourceObject: {fileID: 6704899457925197014, guid: ef190e6b7159ebb4fba559ab30eae95e, type: 3}
+      insertIndex: -1
+      addedObject: {fileID: 337214536}
   m_SourcePrefab: {fileID: 100100000, guid: ef190e6b7159ebb4fba559ab30eae95e, type: 3}
 --- !u!1 &1290155064
 GameObject:
@@ -740,6 +873,26 @@ PrefabInstance:
       propertyPath: m_Name
       value: Island_0
       objectReference: {fileID: 0}
+    - target: {fileID: 8004758713100855835, guid: ef190e6b7159ebb4fba559ab30eae95e, type: 3}
+      propertyPath: SDFTexture
+      value: 
+      objectReference: {fileID: 11700000, guid: 071c8bde469ba7e4b81d0386307d2b66, type: 2}
+    - target: {fileID: 8004758713100855835, guid: ef190e6b7159ebb4fba559ab30eae95e, type: 3}
+      propertyPath: LocalHalfExtents.x
+      value: 0.5
+      objectReference: {fileID: 0}
+    - target: {fileID: 8004758713100855835, guid: ef190e6b7159ebb4fba559ab30eae95e, type: 3}
+      propertyPath: LocalHalfExtents.y
+      value: 0.49999997
+      objectReference: {fileID: 0}
+    - target: {fileID: 8004758713100855835, guid: ef190e6b7159ebb4fba559ab30eae95e, type: 3}
+      propertyPath: LocalHalfExtents.z
+      value: 0.5
+      objectReference: {fileID: 0}
+    - target: {fileID: 8459266994953834700, guid: ef190e6b7159ebb4fba559ab30eae95e, type: 3}
+      propertyPath: m_LocalScale.y
+      value: 11.881661
+      objectReference: {fileID: 0}
     - target: {fileID: 8459266994953834700, guid: ef190e6b7159ebb4fba559ab30eae95e, type: 3}
       propertyPath: m_LocalPosition.x
       value: 0.4634
@@ -783,8 +936,35 @@ PrefabInstance:
     m_RemovedComponents: []
     m_RemovedGameObjects: []
     m_AddedGameObjects: []
-    m_AddedComponents: []
+    m_AddedComponents:
+    - targetCorrespondingSourceObject: {fileID: 6704899457925197014, guid: ef190e6b7159ebb4fba559ab30eae95e, type: 3}
+      insertIndex: -1
+      addedObject: {fileID: 1807340993}
   m_SourcePrefab: {fileID: 100100000, guid: ef190e6b7159ebb4fba559ab30eae95e, type: 3}
+--- !u!1 &1807340992 stripped
+GameObject:
+  m_CorrespondingSourceObject: {fileID: 6704899457925197014, guid: ef190e6b7159ebb4fba559ab30eae95e, type: 3}
+  m_PrefabInstance: {fileID: 1555666639}
+  m_PrefabAsset: {fileID: 0}
+--- !u!114 &1807340993
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1807340992}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 20c8bb1e2e41c9743a87d4a91ce50ea3, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: FogOfWar.Visibility::FogOfWar.Visibility.Authoring.IslandSDFContributor
+  _islandId: StressTest_Island_0_-17464
+  _textureSlot: -1
+  _overrideResolution: 0
+  _explicitMeshSources: []
+  _isDirty: 0
+  _lastBakeTime: 2026-01-07 16:26:34
+  _bakedSDFTexture: {fileID: 11700000, guid: 071c8bde469ba7e4b81d0386307d2b66, type: 2}
 --- !u!1 &1908020111
 GameObject:
   m_ObjectHideFlags: 0
@@ -843,8 +1023,24 @@ PrefabInstance:
       value: Island_2
       objectReference: {fileID: 0}
     - target: {fileID: 8004758713100855835, guid: ef190e6b7159ebb4fba559ab30eae95e, type: 3}
+      propertyPath: SDFTexture
+      value: 
+      objectReference: {fileID: 11700000, guid: 27b743dd46929c644868109a9ddbf782, type: 2}
+    - target: {fileID: 8004758713100855835, guid: ef190e6b7159ebb4fba559ab30eae95e, type: 3}
       propertyPath: TextureSlot
       value: 2
+      objectReference: {fileID: 0}
+    - target: {fileID: 8004758713100855835, guid: ef190e6b7159ebb4fba559ab30eae95e, type: 3}
+      propertyPath: LocalHalfExtents.x
+      value: 0.49999997
+      objectReference: {fileID: 0}
+    - target: {fileID: 8004758713100855835, guid: ef190e6b7159ebb4fba559ab30eae95e, type: 3}
+      propertyPath: LocalHalfExtents.y
+      value: 0.49999997
+      objectReference: {fileID: 0}
+    - target: {fileID: 8004758713100855835, guid: ef190e6b7159ebb4fba559ab30eae95e, type: 3}
+      propertyPath: LocalHalfExtents.z
+      value: 0.50000006
       objectReference: {fileID: 0}
     - target: {fileID: 8459266994953834700, guid: ef190e6b7159ebb4fba559ab30eae95e, type: 3}
       propertyPath: m_LocalScale.x
@@ -852,7 +1048,7 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 8459266994953834700, guid: ef190e6b7159ebb4fba559ab30eae95e, type: 3}
       propertyPath: m_LocalScale.y
-      value: 12.012119
+      value: 16.054197
       objectReference: {fileID: 0}
     - target: {fileID: 8459266994953834700, guid: ef190e6b7159ebb4fba559ab30eae95e, type: 3}
       propertyPath: m_LocalScale.z
@@ -901,7 +1097,10 @@ PrefabInstance:
     m_RemovedComponents: []
     m_RemovedGameObjects: []
     m_AddedGameObjects: []
-    m_AddedComponents: []
+    m_AddedComponents:
+    - targetCorrespondingSourceObject: {fileID: 6704899457925197014, guid: ef190e6b7159ebb4fba559ab30eae95e, type: 3}
+      insertIndex: -1
+      addedObject: {fileID: 697803295}
   m_SourcePrefab: {fileID: 100100000, guid: ef190e6b7159ebb4fba559ab30eae95e, type: 3}
 --- !u!1660057539 &9223372036854775807
 SceneRoots:

@@ -242,6 +242,27 @@ Import via Package Manager:
 2. The system auto-calculates all buffer sizes from this value
 3. Check console for validation warnings from config's `OnValidate()`
 
+## Demo Videos
+
+Below are two local demo videos showcasing the SDF Visibility System. If your viewer doesn't render embedded videos, use the direct links under "Download / Direct links".
+
+### Embedded demos
+
+<video controls width="640">
+  <source src="FogOfWarSystem%202026-01-05%2016-19-48.mp4" type="video/mp4">
+  Your browser does not support the video tag.
+</video>
+
+<video controls width="640">
+  <source src="FogOfWarSystem%202026-01-05%2016-12-18.mp4" type="video/mp4">
+  Your browser does not support the video tag.
+</video>
+
+### Download / Direct links
+
+- [FogOfWarSystem demo — 2026-01-05 16:19:48](FogOfWarSystem%202026-01-05%2016-19-48.mp4)
+- [FogOfWarSystem demo — 2026-01-05 16:12:18](FogOfWarSystem%202026-01-05%2016-12-18.mp4)
+
 ## License
 
 MIT License - See LICENSE.md
